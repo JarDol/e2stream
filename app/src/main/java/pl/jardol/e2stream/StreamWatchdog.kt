@@ -28,7 +28,9 @@ class StreamWatchdog(
     private val bufferingMs: Long,
     private val onStall: (String) -> Unit,
     private val onHealthy: () -> Unit,
+    private val dropRestart: Boolean = true,
 ) {
+    private val hist = ArrayDeque<LongArray>()
     private val h = Handler(Looper.getMainLooper())
     private var running = false
 
@@ -80,6 +82,7 @@ class StreamWatchdog(
         lastPosChange = now
         bufferingSince = 0
         wasReady = false
+        hist.clear()
         healthySince = 0
         healthyReported = false
     }
@@ -115,6 +118,7 @@ class StreamWatchdog(
         val c = player.videoDecoderCounters
         if (c !== countersRef) {
             countersRef = c
+            hist.clear()
             lastFrames = -1
             framesMoving = false
             lastFrameChange = now
@@ -128,6 +132,17 @@ class StreamWatchdog(
                 if (lastFrames >= 0) framesMoving = true
                 lastFrames = f
                 lastFrameChange = now
+            }
+            // masowa utrata klatek (zacinanie): w ciągu ~3 s więcej klatek utraconych niż pokazanych
+            if (dropRestart) {
+                hist.addLast(longArrayOf(now, c.renderedOutputBufferCount.toLong(), c.droppedBufferCount.toLong()))
+                while (hist.size > 1 && now - hist.first()[0] > 3000) hist.removeFirst()
+                val first = hist.first()
+                val dr = c.droppedBufferCount - first[2]
+                val rr = c.renderedOutputBufferCount - first[1]
+                if (now - first[0] >= 2500 && dr >= 40 && dr > rr) {
+                    fire("zacinanie: utracono $dr z ${dr + rr} klatek w ${(now - first[0]) / 1000} s"); return
+                }
             }
         }
 

@@ -28,6 +28,20 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
     private var injectIdx = 0
     private var injectCc = 0
     private var lastInjectAt = 0L
+    // --- znaczniki czasu: PTS/DTS względem PCR (ms)
+    private var lastPcrAny = -1L
+    private val videoPids = HashSet<Int>()
+    private val audioPids = HashSet<Int>()
+    private var mainAudioPid = -1
+    private var ivVMin = Long.MAX_VALUE
+    private var ivVMax = Long.MIN_VALUE
+    private var ivAMin = Long.MAX_VALUE
+    private var ivAMax = Long.MIN_VALUE
+    private var lastAvDiff = Long.MIN_VALUE
+    @Volatile var avDiffMs = 0L
+        private set
+    @Volatile var videoLeadMs = 0L
+        private set
     private val secBuf = ByteArray(1100)
     private var secLen = 0
     private var secPkts = java.io.ByteArrayOutputStream()
@@ -110,6 +124,11 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         lastInjectAt = 0
         secLen = 0
         secPkts = java.io.ByteArrayOutputStream()
+        lastPcrAny = -1
+        videoPids.clear(); audioPids.clear(); mainAudioPid = -1
+        ivVMin = Long.MAX_VALUE; ivVMax = Long.MIN_VALUE; ivAMin = Long.MAX_VALUE; ivAMax = Long.MIN_VALUE
+        lastAvDiff = Long.MIN_VALUE
+        avDiffMs = 0; videoLeadMs = 0
         startAt = SystemClock.elapsedRealtime()
         startSkipped = 0
         startReported = false
@@ -118,6 +137,25 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         burstAvgMs = 0
         ivBurstN = 0
         ivBurstSum = 0
+        var avText = ""
+        var avAlert = false
+        if (ivVMin != Long.MAX_VALUE && ivAMin != Long.MAX_VALUE) {
+            val v = (ivVMin + ivVMax) / 2
+            val a = (ivAMin + ivAMax) / 2
+            avDiffMs = v - a
+            videoLeadMs = ivVMin
+            avText = ", PTS−PCR: wideo $ivVMin…$ivVMax ms, audio $ivAMin…$ivAMax ms, wideo−audio ${v - a} ms"
+            if (lastAvDiff != Long.MIN_VALUE && kotlin.math.abs((v - a) - lastAvDiff) > 200) {
+                avAlert = true
+                event("przesunięcie obrazu względem dźwięku zmieniło się z $lastAvDiff na ${v - a} ms")
+            }
+            if (ivVMax - ivVMin > 1500) {
+                avAlert = true
+                event("znaczniki czasu obrazu skaczą: rozrzut ${ivVMax - ivVMin} ms")
+            }
+            lastAvDiff = v - a
+        }
+        ivVMin = Long.MAX_VALUE; ivVMax = Long.MIN_VALUE; ivAMin = Long.MAX_VALUE; ivAMax = Long.MIN_VALUE
         bytes = 0; packets = 0; ccErrors = 0; teiErrors = 0; scrambled = 0
         syncLoss = 0; pcrJumps = 0; pmtChanges = 0; maxGapMs = 0; bitrateKbps = 0
         lastErrorAt = 0
@@ -276,6 +314,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
                 }
             }
             pidCc[pid] = cc
+            if ((b1 and 0x40) != 0 && (pid in videoPids || pid == mainAudioPid)) pes(p, payload, o + 188, pid)
             if (pid == pmtPid && pmtPid >= 0 && payload < o + 188) {
                 assemblePmt(p, o, payload, (b1 and 0x40) != 0)
             } else if ((b1 and 0x40) != 0 && payload < o + 188) {
@@ -289,6 +328,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         val base = (u(p, i).toLong() shl 25) or (u(p, i + 1).toLong() shl 17) or
             (u(p, i + 2).toLong() shl 9) or (u(p, i + 3).toLong() shl 1) or (u(p, i + 4).toLong() shr 7)
         val ms = base / 90
+        lastPcrAny = ms
         val last = lastPcrMs[pid]
         lastPcrMs[pid] = ms
         if (last >= 0 && !disc) {
@@ -301,6 +341,26 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
     }
 
     private val pmtCandidates = HashSet<Int>()
+
+    /** Nagłówek PES: DTS (lub PTS) względem ostatniego PCR. */
+    private fun pes(p: ByteArray, s: Int, end: Int, pid: Int) {
+        if (s + 14 > end || lastPcrAny < 0) return
+        if (u(p, s) != 0 || u(p, s + 1) != 0 || u(p, s + 2) != 1) return
+        val flags = u(p, s + 7) shr 6
+        if ((flags and 2) == 0) return
+        val i = if (flags == 3 && s + 19 <= end) s + 14 else s + 9
+        val ts = (((u(p, i).toLong() shr 1) and 7L) shl 30) or (u(p, i + 1).toLong() shl 22) or
+            ((u(p, i + 2).toLong() shr 1) shl 15) or (u(p, i + 3).toLong() shl 7) or (u(p, i + 4).toLong() shr 1)
+        var off = ts / 90 - lastPcrAny
+        if (off > 13_000_000) off -= 95_443_717 else if (off < -13_000_000) off += 95_443_717 // zawinięcie 33 bitów
+        if (pid in videoPids) {
+            if (off < ivVMin) ivVMin = off
+            if (off > ivVMax) ivVMax = off
+        } else {
+            if (off < ivAMin) ivAMin = off
+            if (off > ivAMax) ivAMax = off
+        }
+    }
 
     /** Zbiera sekcję PMT z jednego lub kilku pakietów; po skompletowaniu parsuje i zapamiętuje pakiety. */
     private fun assemblePmt(p: ByteArray, o: Int, payload: Int, pusi: Boolean) {
@@ -448,11 +508,31 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             val st = u(p, k)
             val epid = ((u(p, k + 1) and 0x1f) shl 8) or u(p, k + 2)
             val esil = ((u(p, k + 3) and 0x0f) shl 8) or u(p, k + 4)
-            val name = streamTypeName(st)
+            var name = streamTypeName(st)
+            if (st == 0x06) {
+                var d = k + 5
+                val de = minOf(k + 5 + esil, sectionEnd)
+                while (d + 2 <= de) {
+                    when (u(p, d)) {
+                        0x6a -> name = "AC3"
+                        0x7a -> name = "EAC3"
+                        0x7c -> name = "AAC"
+                        0x56 -> name = "teletekst"
+                        0x59 -> name = "napisy"
+                    }
+                    d += 2 + u(p, d + 1)
+                }
+            }
             pidType[epid] = name
             list.add("$epid:$name")
             k += 5 + esil
         }
+        videoPids.clear(); audioPids.clear()
+        for ((pid, n) in pidType) {
+            if (n == "H264" || n == "HEVC" || n == "MPEG2-V") videoPids.add(pid)
+            if (n == "MPEG-A" || n == "AC3" || n == "EAC3" || n == "AAC" || n == "LATM") audioPids.add(pid)
+        }
+        mainAudioPid = audioPids.minOrNull() ?: -1
         if (pmtVersion >= 0) {
             pmtChanges++
             event("zmiana PMT wersja $pmtVersion → $version: ${list.joinToString(" ")}")
@@ -482,12 +562,16 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         ivBurstSum = 0
         ivStart = now
         ivBytes = 0; ivCc = 0; ivTei = 0; ivScr = 0; ivSync = 0; ivPcr = 0; ivGap = 0
-        if (errors > 0 || now - lastHeartbeat > 60_000) {
+        if (errors > 0 || avAlert || now - lastHeartbeat > 60_000 || forceNext) {
+            forceNext = false
             lastHeartbeat = now
-            return text
+            return text + avText
         }
         return null
     }
+
+    /** Wymusza pełną linię podsumowania przy najbliższym interwale. */
+    @Volatile var forceNext = false
 
     @Synchronized
     fun summary(): String {
@@ -495,7 +579,8 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             .sortedByDescending { pidCcErr[it] }.take(5)
             .joinToString(" ") { "${pidName(it)}=${pidCcErr[it]}" }
         return "TS razem: ${bytes / 1_000_000} MB, PMT pid $pmtPid ${if (pmtSeen) "jest" else "BRAK"}, wstawiony ×$pmtInjected, wyczyszczone $cleaned, CC $ccErrors, TEI $teiErrors, kodowane $scrambled, sync $syncLoss, PCR $pcrJumps, PMT $pmtChanges, maks. odczyt $maxGapMs ms" +
-            (if (worst.isNotEmpty()) " | CC wg PID: $worst" else "")
+            (if (worst.isNotEmpty()) " | CC wg PID: $worst" else "") +
+            " | ostatnio wideo−audio $avDiffMs ms, wideo PTS−PCR min $videoLeadMs ms"
     }
 
     /** Kopia bufora pierścieniowego w kolejności chronologicznej, wyrównana do pakietów. */

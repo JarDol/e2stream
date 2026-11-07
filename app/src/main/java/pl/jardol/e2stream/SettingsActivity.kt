@@ -46,6 +46,7 @@ class SettingsActivity : Activity() {
         val tsRingMb = findViewById<EditText>(R.id.tsRingMb)
         val tsFtp = findViewById<CheckBox>(R.id.tsFtp)
         val cleanTs = findViewById<CheckBox>(R.id.cleanTs)
+        val dropRestart = findViewById<CheckBox>(R.id.dropRestart)
         val storageInfo = findViewById<TextView>(R.id.storageInfo)
         val bouquetsInfo = findViewById<TextView>(R.id.bouquetsInfo)
         val bouquetsBtn = findViewById<Button>(R.id.bouquets)
@@ -81,6 +82,7 @@ class SettingsActivity : Activity() {
         tsRingMb.setText(p.tsRingMb.toString())
         tsFtp.isChecked = p.tsFtp
         cleanTs.isChecked = p.cleanTs
+        dropRestart.isChecked = p.dropRestart
         storageInfo.text = "Zapis: " + (storageDir.ifBlank { Storage.dir(this, p).absolutePath })
         bouquetsInfo.text = if (hidden.isEmpty()) "Widoczne: wszystkie" else "Ukryte bukiety: ${hidden.size}"
 
@@ -194,6 +196,7 @@ class SettingsActivity : Activity() {
             p.tsRingMb = (tsRingMb.text.toString().toIntOrNull() ?: 16).coerceIn(2, 64)
             p.tsFtp = tsFtp.isChecked
             p.cleanTs = cleanTs.isChecked
+            p.dropRestart = dropRestart.isChecked
             p.storageDir = storageDir
             p.hiddenBouquets = hidden
             p.bump()

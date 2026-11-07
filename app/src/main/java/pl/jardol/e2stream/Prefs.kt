@@ -123,6 +123,11 @@ class Prefs(ctx: Context) {
     fun setPmtFor(sid: Int, b: ByteArray) =
         putS("pmt_$sid", android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP))
 
+    /** Restart strumienia przy masowej utracie klatek (zacinanie). */
+    var dropRestart: Boolean
+        get() = sp.getBoolean("dropRestart", true)
+        set(v) = putB("dropRestart", v)
+
     /** Ukryte bukiety (referencje). */
     var hiddenBouquets: Set<String>
         get() = HashSet(sp.getStringSet("hiddenBouquets", emptySet()) ?: emptySet())

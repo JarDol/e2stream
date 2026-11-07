@@ -290,6 +290,7 @@ class PlayerActivity : Activity() {
                 bufferingMs = maxOf(stall * 2, 8000L),
                 onStall = { reason -> scheduleRestart(reason) },
                 onHealthy = { failStreak = 0 },
+                dropRestart = prefs.dropRestart,
             ).also { it.start() }
         }
         ui.removeCallbacks(statsTick)
@@ -326,8 +327,28 @@ class PlayerActivity : Activity() {
         }
     }
 
+    private var lastRendered = -1L
+    private var lastDropped = -1L
+
     private val tsTick = object : Runnable {
         override fun run() {
+            val c = player?.videoDecoderCounters
+            if (c != null) {
+                c.ensureUpdated()
+                val r = c.renderedOutputBufferCount.toLong()
+                val d = c.droppedBufferCount.toLong()
+                if (lastRendered in 0..r && lastDropped in 0..d) {
+                    val dd = d - lastDropped
+                    if (dd > 0) {
+                        AppLog.i("dekoder 10 s: pokazane +${r - lastRendered}, utracone +$dd")
+                        analyzer?.forceNext = true
+                    }
+                }
+                lastRendered = r
+                lastDropped = d
+            } else {
+                lastRendered = -1; lastDropped = -1
+            }
             analyzer?.interval()?.let { AppLog.i(it) }
             ui.postDelayed(this, 10_000)
         }
@@ -890,6 +911,7 @@ class PlayerActivity : Activity() {
             "Ścieżka dźwięku…",
             if (stats.visibility == View.VISIBLE) "Ukryj statystyki" else "Pokaż statystyki",
             "Odświeżanie ekranu: ${afrName(prefs.afrMode)}",
+            "Tunelowanie: ${if (prefs.tunneling) "włączone" else "wyłączone"}",
             "Wyślij log na dekoder",
             "Wyślij zrzuty TS na dekoder",
             "Aktualizacja",
@@ -907,10 +929,18 @@ class PlayerActivity : Activity() {
                         applyDisplayMode()
                         showMessage("Odświeżanie ekranu: ${afrName(prefs.afrMode)}")
                     }
-                    3 -> uploadLog(true)
-                    4 -> uploadDumps()
-                    5 -> checkUpdate(true)
-                    6 -> openSettings()
+                    3 -> {
+                        prefs.tunneling = !prefs.tunneling
+                        AppLog.i("tunelowanie przełączone: ${prefs.tunneling}")
+                        releasePlayer()
+                        buildPlayer()
+                        currentUrl?.let { startStream(it) }
+                        showMessage("Tunelowanie: ${if (prefs.tunneling) "włączone" else "wyłączone"}")
+                    }
+                    4 -> uploadLog(true)
+                    5 -> uploadDumps()
+                    6 -> checkUpdate(true)
+                    7 -> openSettings()
                 }
             }
             .show()
