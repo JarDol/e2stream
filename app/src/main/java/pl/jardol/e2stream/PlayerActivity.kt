@@ -296,15 +296,34 @@ class PlayerActivity : Activity() {
         ui.post(statsTick)
         ui.removeCallbacks(tsTick)
         ui.postDelayed(tsTick, 10_000)
+        ui.removeCallbacks(pmtCheck)
+        ui.postDelayed(pmtCheck, 500)
     }
 
     private fun ensureAnalyzer() {
         val ring = if (prefs.saveTs) prefs.tsRingMb.coerceIn(2, 64) * 1_000_000 else 0
         if (analyzer == null || ring != analyzerRing) {
-            analyzer = TsAnalyzer(ring) { msg -> AppLog.i(msg) }
+            analyzer = TsAnalyzer(ring) { msg -> AppLog.i(msg) }.also { a ->
+                a.pmtCacheGet = { sid -> prefs.pmtFor(sid) }
+                a.pmtCachePut = { sid, b -> prefs.setPmtFor(sid, b) }
+            }
             analyzerRing = ring
         }
         analyzer?.clean = prefs.cleanTs
+    }
+
+    /** Szybki restart, gdy dekoder nie przysłał PMT, a odtwarzacz wciąż buforuje. */
+    private val pmtCheck = object : Runnable {
+        override fun run() {
+            val a = analyzer
+            val p = player
+            if (a != null && p != null && p.playbackState == Player.STATE_BUFFERING &&
+                p.videoFormat == null && a.pmtMissingMs() > 3000
+            ) {
+                scheduleRestart("brak PMT w strumieniu ${a.pmtMissingMs()} ms")
+            }
+            ui.postDelayed(this, 500)
+        }
     }
 
     private val tsTick = object : Runnable {
@@ -320,6 +339,7 @@ class PlayerActivity : Activity() {
         ui.removeCallbacks(restartRunnable)
         ui.removeCallbacks(statsTick)
         ui.removeCallbacks(tsTick)
+        ui.removeCallbacks(pmtCheck)
         restartPending = false
         playerView.player = null
         player?.release()

@@ -116,6 +116,13 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("cleanTs", true)
         set(v) = putB("cleanTs", v)
 
+    /** Zapamiętany PMT kanału (surowe pakiety TS, Base64). */
+    fun pmtFor(sid: Int): ByteArray? = s("pmt_$sid").takeIf { it.isNotEmpty() }?.let {
+        try { android.util.Base64.decode(it, android.util.Base64.NO_WRAP) } catch (_: Exception) { null }
+    }
+    fun setPmtFor(sid: Int, b: ByteArray) =
+        putS("pmt_$sid", android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP))
+
     /** Ukryte bukiety (referencje). */
     var hiddenBouquets: Set<String>
         get() = HashSet(sp.getStringSet("hiddenBouquets", emptySet()) ?: emptySet())

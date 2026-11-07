@@ -13,7 +13,24 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
     /** Czyść strumień: pakiety TEI / kodowane / PMT innych programów zamieniane na puste (PID 0x1FFF). */
     @Volatile var clean = true
 
+    /** Pamięć PMT kanałów: odczyt/zapis surowych pakietów PMT (wielokrotność 188 B). */
+    var pmtCacheGet: ((Int) -> ByteArray?)? = null
+    var pmtCachePut: ((Int, ByteArray) -> Unit)? = null
+
     private var expectedSid = -1
+    @Volatile var patSeenAt = 0L
+        private set
+    @Volatile var pmtSeen = false
+        private set
+    @Volatile var pmtInjected = 0
+        private set
+    private var injectPkts: ByteArray? = null
+    private var injectIdx = 0
+    private var injectCc = 0
+    private var lastInjectAt = 0L
+    private val secBuf = ByteArray(1100)
+    private var secLen = 0
+    private var secPkts = java.io.ByteArrayOutputStream()
     private var startAt = SystemClock.elapsedRealtime()
     private var startSkipped = 0
     private var startReported = false
@@ -84,6 +101,15 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
     @Synchronized
     fun reset(sid: Int = -1) {
         expectedSid = sid
+        patSeenAt = 0
+        pmtSeen = false
+        pmtInjected = 0
+        injectPkts = if (sid >= 0) pmtCacheGet?.invoke(sid) else null
+        injectIdx = 0
+        injectCc = 0
+        lastInjectAt = 0
+        secLen = 0
+        secPkts = java.io.ByteArrayOutputStream()
         startAt = SystemClock.elapsedRealtime()
         startSkipped = 0
         startReported = false
@@ -206,6 +232,8 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             if (mutable) nullPacket(p, o)
             return
         }
+        val slot = pid == 0x1fff || pid in otherPmtPids || pid == 0x11 || pid == 0x12
+        if (slot && mutable && maybeInject(p, o)) return
         if (pid == 0x1fff) return
         if (pid in otherPmtPids) {
             if (mutable) nullPacket(p, o) // PMT innego programu z PAT — ExoPlayer mógłby się na nim „zaczepić”
@@ -248,7 +276,9 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
                 }
             }
             pidCc[pid] = cc
-            if ((b1 and 0x40) != 0 && payload < o + 188) {
+            if (pid == pmtPid && pmtPid >= 0 && payload < o + 188) {
+                assemblePmt(p, o, payload, (b1 and 0x40) != 0)
+            } else if ((b1 and 0x40) != 0 && payload < o + 188) {
                 if (pid == 0) parsePat(p, payload, o + 188)
                 else if (pid == pmtPid || (pmtPid < 0 && pmtCandidates.contains(pid))) parsePmt(p, payload, o + 188, pid)
             }
@@ -272,6 +302,67 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
 
     private val pmtCandidates = HashSet<Int>()
 
+    /** Zbiera sekcję PMT z jednego lub kilku pakietów; po skompletowaniu parsuje i zapamiętuje pakiety. */
+    private fun assemblePmt(p: ByteArray, o: Int, payload: Int, pusi: Boolean) {
+        if (pusi) {
+            val t = payload + 1 + u(p, payload)
+            if (t >= o + 188) return
+            secLen = 0
+            secPkts = java.io.ByteArrayOutputStream()
+            System.arraycopy(p, t, secBuf, 0, o + 188 - t)
+            secLen = o + 188 - t
+        } else {
+            if (secLen == 0) return
+            val n = minOf(o + 188 - payload, secBuf.size - secLen)
+            if (n <= 0) { secLen = 0; return }
+            System.arraycopy(p, payload, secBuf, secLen, n)
+            secLen += n
+        }
+        secPkts.write(p, o, 188)
+        if (secLen < 3) return
+        val need = 3 + (((secBuf[1].toInt() and 0x0f) shl 8) or (secBuf[2].toInt() and 0xff))
+        if (need > secBuf.size) { secLen = 0; return }
+        if (secLen < need) return
+        val pkts = secPkts.toByteArray()
+        secLen = 0
+        if (parsePmtSection(secBuf, 0, need)) {
+            if (!pmtSeen) {
+                pmtSeen = true
+                if (expectedSid >= 0 && pkts.isNotEmpty() && pkts.size <= 188 * 5) {
+                    injectPkts = pkts
+                    pmtCachePut?.invoke(expectedSid, pkts)
+                }
+            }
+        }
+    }
+
+    /** Gdy po PAT przez 700 ms nie ma PMT, wstawia zapamiętany PMT kanału w miejsce mało ważnego pakietu. */
+    private fun maybeInject(p: ByteArray, o: Int): Boolean {
+        val pk = injectPkts ?: return false
+        if (pmtSeen || patSeenAt == 0L || pmtPid < 0) return false
+        val now = SystemClock.elapsedRealtime()
+        if (now - patSeenAt < 700) return false
+        if (injectIdx == 0 && now - lastInjectAt < 300) return false
+        val src = injectIdx * 188
+        if (src + 188 > pk.size) { injectIdx = 0; return false }
+        System.arraycopy(pk, src, p, o, 188)
+        // PID naszego PMT i kolejny licznik ciągłości
+        p[o + 1] = ((p[o + 1].toInt() and 0xe0) or ((pmtPid shr 8) and 0x1f)).toByte()
+        p[o + 2] = (pmtPid and 0xff).toByte()
+        p[o + 3] = ((p[o + 3].toInt() and 0xf0) or (injectCc and 0x0f)).toByte()
+        injectCc = (injectCc + 1) and 0x0f
+        injectIdx++
+        if (injectIdx * 188 >= pk.size) {
+            injectIdx = 0
+            lastInjectAt = now
+            pmtInjected++
+            if (pmtInjected == 1 || pmtInjected % 20 == 0) {
+                onEvent("TS: brak PMT od dekodera ${now - patSeenAt} ms po PAT — wstawiam zapamiętany PMT (×$pmtInjected)")
+            }
+        }
+        return true
+    }
+
     /**
      * PAT ze strumienia Enigma2 to oryginalny PAT transpondera — zawiera wszystkie programy.
      * Nasz PMT wybieramy po SID z referencji serwisu; PMT pozostałych programów oznaczamy do usunięcia.
@@ -293,6 +384,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             }
             k += 4
         }
+        if (patSeenAt == 0L) patSeenAt = SystemClock.elapsedRealtime()
         if (mine >= 0) {
             if (mine != pmtPid) {
                 pmtPid = mine
@@ -328,8 +420,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         val t = s + 1 + u(p, s)
         if (t + 12 > end || u(p, t) != 0x02) return
         val sl = ((u(p, t + 1) and 0x0f) shl 8) or u(p, t + 2)
-        val sectionEnd = t + 3 + sl - 4
-        if (sectionEnd > end) return // sekcja dłuższa niż jeden pakiet — pomijamy
+        if (t + 3 + sl > end) return // dłuższa sekcja — tylko gdy SID znany (assemblePmt)
         val prog = (u(p, t + 3) shl 8) or u(p, t + 4)
         if (expectedSid >= 0 && prog != expectedSid) return
         if (pmtPid < 0) {
@@ -338,8 +429,17 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             otherPmtPids.clear()
             pmtCandidates.filter { it != pid }.forEach { otherPmtPids.add(it) }
         }
+        if (parsePmtSection(p, t, t + 3 + sl)) pmtSeen = true
+    }
+
+    /** Parsuje kompletną sekcję PMT od [t] (table_id) do [end] (z CRC). */
+    private fun parsePmtSection(p: ByteArray, t: Int, end: Int): Boolean {
+        if (t + 12 > end || u(p, t) != 0x02) return false
+        val prog = (u(p, t + 3) shl 8) or u(p, t + 4)
+        if (expectedSid >= 0 && prog != expectedSid) return false
+        val sectionEnd = end - 4
         val version = (u(p, t + 5) shr 1) and 0x1f
-        if (version == pmtVersion) return
+        if (version == pmtVersion) return true
         val pil = ((u(p, t + 10) and 0x0f) shl 8) or u(p, t + 11)
         var k = t + 12 + pil
         val list = ArrayList<String>()
@@ -357,10 +457,16 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             pmtChanges++
             event("zmiana PMT wersja $pmtVersion → $version: ${list.joinToString(" ")}")
         } else {
-            onEvent("TS: PMT program $prog wersja $version: ${list.joinToString(" ")}")
+            val delay = if (patSeenAt > 0) " (${SystemClock.elapsedRealtime() - patSeenAt} ms po PAT)" else ""
+            onEvent("TS: PMT program $prog wersja $version$delay: ${list.joinToString(" ")}")
         }
         pmtVersion = version
+        return true
     }
+
+    /** Ile ms od PAT czekamy na PMT (0 = PMT już jest albo nie było jeszcze PAT). */
+    fun pmtMissingMs(): Long =
+        if (pmtSeen || patSeenAt == 0L) 0 else SystemClock.elapsedRealtime() - patSeenAt
 
     /** Podsumowanie ostatnich ~10 s; zwraca tekst do logu albo null (gdy nic ciekawego). */
     @Synchronized
@@ -388,7 +494,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         val worst = (0 until 8192).filter { pidCcErr[it] > 0 }
             .sortedByDescending { pidCcErr[it] }.take(5)
             .joinToString(" ") { "${pidName(it)}=${pidCcErr[it]}" }
-        return "TS razem: ${bytes / 1_000_000} MB, PMT pid $pmtPid, wyczyszczone $cleaned, CC $ccErrors, TEI $teiErrors, kodowane $scrambled, sync $syncLoss, PCR $pcrJumps, PMT $pmtChanges, maks. odczyt $maxGapMs ms" +
+        return "TS razem: ${bytes / 1_000_000} MB, PMT pid $pmtPid ${if (pmtSeen) "jest" else "BRAK"}, wstawiony ×$pmtInjected, wyczyszczone $cleaned, CC $ccErrors, TEI $teiErrors, kodowane $scrambled, sync $syncLoss, PCR $pcrJumps, PMT $pmtChanges, maks. odczyt $maxGapMs ms" +
             (if (worst.isNotEmpty()) " | CC wg PID: $worst" else "")
     }
 
