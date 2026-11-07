@@ -1,10 +1,12 @@
 package pl.jardol.e2stream
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.os.Bundle
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.RadioGroup
 import android.widget.TextView
 
 class SettingsActivity : Activity() {
@@ -13,6 +15,7 @@ class SettingsActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
         val p = Prefs(this)
+        AppLog.init(this)
 
         val host = findViewById<EditText>(R.id.host)
         val httpPort = findViewById<EditText>(R.id.httpPort)
@@ -23,7 +26,14 @@ class SettingsActivity : Activity() {
         val watchdog = findViewById<CheckBox>(R.id.watchdog)
         val stallSec = findViewById<EditText>(R.id.stallSec)
         val bufferMs = findViewById<EditText>(R.id.bufferMs)
-        val force50 = findViewById<CheckBox>(R.id.force50)
+        val afr = findViewById<RadioGroup>(R.id.afr)
+        val audioLang = findViewById<EditText>(R.id.audioLang)
+        val preferAc3 = findViewById<CheckBox>(R.id.preferAc3)
+        val logFtp = findViewById<CheckBox>(R.id.logFtp)
+        val ftpUser = findViewById<EditText>(R.id.ftpUser)
+        val ftpPass = findViewById<EditText>(R.id.ftpPass)
+        val ftpDir = findViewById<EditText>(R.id.ftpDir)
+        val discover = findViewById<Button>(R.id.discover)
 
         host.setText(p.host)
         httpPort.setText(p.httpPort.toString())
@@ -34,12 +44,58 @@ class SettingsActivity : Activity() {
         watchdog.isChecked = p.watchdog
         stallSec.setText(p.stallSec.toString())
         bufferMs.setText(p.bufferMs.toString())
-        force50.isChecked = p.force50Hz
+        afr.check(
+            when (p.afrMode) {
+                1 -> R.id.afr50
+                2 -> R.id.afrAuto
+                else -> R.id.afrOff
+            }
+        )
+        audioLang.setText(p.audioLang)
+        preferAc3.isChecked = p.preferAc3
+        logFtp.isChecked = p.logFtp
+        ftpUser.setText(p.ftpUser)
+        ftpPass.setText(p.ftpPass)
+        ftpDir.setText(p.ftpDir)
 
         val ver = try {
             packageManager.getPackageInfo(packageName, 0).versionName ?: ""
         } catch (e: Exception) { "" }
         findViewById<TextView>(R.id.version).text = "E2Stream $ver"
+        findViewById<TextView>(R.id.logPath).text = "Log lokalnie: ${AppLog.path()}"
+
+        discover.setOnClickListener {
+            discover.isEnabled = false
+            val port = httpPort.text.toString().toIntOrNull() ?: 80
+            Thread {
+                val found = Discovery.scan(port) { done, total ->
+                    if (done % 16 == 0 || done == total) runOnUiThread {
+                        discover.text = "Szukam… $done/$total"
+                    }
+                }
+                runOnUiThread {
+                    discover.isEnabled = true
+                    discover.text = "Szukaj dekoderów w sieci"
+                    if (isFinishing) return@runOnUiThread
+                    if (found.isEmpty()) {
+                        AlertDialog.Builder(this)
+                            .setTitle("Nie znaleziono dekodera")
+                            .setMessage("Brak odpowiedzi OpenWebif na porcie $port w sieci ${Discovery.localPrefixes().joinToString { it + "x" }}")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    } else {
+                        val labels = found.map { "${it.ip}   ${it.label}" }.toTypedArray()
+                        AlertDialog.Builder(this)
+                            .setTitle("Znalezione dekodery")
+                            .setItems(labels) { _, which ->
+                                host.setText(found[which].ip)
+                                AppLog.i("wybrano dekoder z wyszukiwania: ${found[which].ip} ${found[which].label}")
+                            }
+                            .show()
+                    }
+                }
+            }.start()
+        }
 
         findViewById<Button>(R.id.save).setOnClickListener {
             p.host = host.text.toString().trim()
@@ -51,8 +107,19 @@ class SettingsActivity : Activity() {
             p.watchdog = watchdog.isChecked
             p.stallSec = (stallSec.text.toString().toIntOrNull() ?: 3).coerceIn(1, 30)
             p.bufferMs = (bufferMs.text.toString().toIntOrNull() ?: 1500).coerceIn(500, 10_000)
-            p.force50Hz = force50.isChecked
+            p.afrMode = when (afr.checkedRadioButtonId) {
+                R.id.afr50 -> 1
+                R.id.afrAuto -> 2
+                else -> 0
+            }
+            p.audioLang = audioLang.text.toString().trim().ifEmpty { "pol" }
+            p.preferAc3 = preferAc3.isChecked
+            p.logFtp = logFtp.isChecked
+            p.ftpUser = ftpUser.text.toString().trim().ifEmpty { "root" }
+            p.ftpPass = ftpPass.text.toString()
+            p.ftpDir = ftpDir.text.toString().trim().ifEmpty { "/tmp" }
             p.bump()
+            AppLog.i("zapisano ustawienia: host=${p.host} tunel=${p.tunneling} watchdog=${p.watchdog}/${p.stallSec}s bufor=${p.bufferMs} afr=${p.afrMode} audio=${p.audioLang} ac3=${p.preferAc3}")
             finish()
         }
         findViewById<Button>(R.id.cancel).setOnClickListener { finish() }

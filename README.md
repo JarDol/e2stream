@@ -1,4 +1,4 @@
-# E2Stream 0.1.0
+# E2Stream
 
 Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 
@@ -9,6 +9,11 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
   strumień jest automatycznie otwierany ponownie. To samo, co ręczne „przełącz i wróć”, tylko w ok. 1–2 s.
 * Bukiety i kanały pobierane z OpenWebif (`/api/getservices`), EPG „teraz” (`/api/epgnow`).
 * Strumień: `http://DEKODER:8001/<referencja>` (opcjonalnie z logowaniem Basic).
+* Wyszukiwanie dekoderów w sieci lokalnej (ustawienia → „Szukaj dekoderów w sieci”).
+* Wybór ścieżki dźwięku zapamiętywany osobno dla każdego kanału; preferowany język i opcjonalnie AC3.
+* Odświeżanie ekranu: bez zmian / zawsze 50 Hz / automatycznie wg treści.
+* Log diagnostyczny: lokalnie w `Android/data/pl.jardol.e2stream/files/e2stream.log`
+  i co 2 minuty przez FTP na dekoder (domyślnie `/tmp/e2stream-<model>.log`).
 
 ## Pilot
 
@@ -19,9 +24,10 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 | ▲ / CH+ | następny kanał |
 | ▼ / CH− | poprzedni kanał |
 | ◀ | lista kanałów |
-| ▶ / INFO | statystyki (rozdzielczość, kodek, klatki, liczba wznowień i ostatni powód) |
+| ▶ / INFO | statystyki (rozdzielczość, kodek, klatki, ekran, liczba wznowień i ostatni powód) |
 | cyfry | wybór numeru kanału (OK zatwierdza od razu) |
-| przytrzymanie OK / MENU | ustawienia |
+| przytrzymanie OK / MENU | menu: ścieżka dźwięku, statystyki, odświeżanie ekranu, wyślij log, ustawienia |
+| AUDIO | wybór ścieżki dźwięku |
 | LAST / ⏮ | poprzedni kanał (przełączanie dwóch ostatnich) |
 | WSTECZ ×2 | wyjście |
 
@@ -31,7 +37,9 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 * tunelowanie (domyślnie włączone),
 * watchdog i próg zawieszenia (domyślnie 3 s),
 * bufor startowy (domyślnie 1500 ms),
-* wymuszenie 50 Hz ekranu (przydatne, gdy interfejs TV pracuje w 60 Hz).
+* odświeżanie ekranu (bez zmian / 50 Hz / automatycznie),
+* preferowany język dźwięku i AC3,
+* log przez FTP: użytkownik (root), hasło, katalog na dekoderze.
 
 ## Budowanie
 

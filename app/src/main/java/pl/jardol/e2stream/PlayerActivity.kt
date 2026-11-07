@@ -1,6 +1,7 @@
 package pl.jardol.e2stream
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -15,13 +16,20 @@ import android.widget.BaseAdapter
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
+import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -74,6 +82,8 @@ class PlayerActivity : Activity() {
     private var numberBuffer = ""
     private var suppressOkUp = false
     private var lastBackAt = 0L
+    private var streamGen = 0
+    private var audioAppliedGen = -1
 
     // ---------------------------------------------------------------- cykl życia
 
@@ -83,6 +93,8 @@ class PlayerActivity : Activity() {
         setContentView(R.layout.activity_player)
         prefs = Prefs(this)
         api = OpenWebif(prefs)
+        AppLog.init(this)
+        AppLog.i("=== Start E2Stream ${appVersion()} | ${Build.MANUFACTURER} ${Build.MODEL} | Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) | ekran: ${displayInfo()}")
 
         playerView = findViewById(R.id.playerView)
         panel = findViewById(R.id.panel)
@@ -108,7 +120,9 @@ class PlayerActivity : Activity() {
             return
         }
         buildPlayer()
-        applyRefreshRate(prefs.force50Hz)
+        applyDisplayMode()
+        ui.removeCallbacks(logTick)
+        ui.postDelayed(logTick, 120_000)
         if (settingsVersion != prefs.version || bouquets.isEmpty()) {
             settingsVersion = prefs.version
             loadBouquets()
@@ -120,6 +134,8 @@ class PlayerActivity : Activity() {
     override fun onStop() {
         super.onStop()
         releasePlayer()
+        ui.removeCallbacks(logTick)
+        if (AppLog.dirty) uploadLog(false)
     }
 
     override fun onDestroy() {
@@ -133,12 +149,14 @@ class PlayerActivity : Activity() {
         if (player != null) return
 
         val trackSelector = DefaultTrackSelector(this)
-        trackSelector.setParameters(
-            trackSelector.buildUponParameters()
-                .setTunnelingEnabled(prefs.tunneling)
-                .setPreferredAudioLanguages("pol", "pl")
-                .build()
-        )
+        val langs = prefs.audioLang.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        val params = trackSelector.buildUponParameters()
+            .setTunnelingEnabled(prefs.tunneling)
+            .setPreferredAudioLanguages(*langs.toTypedArray())
+        if (prefs.preferAc3) {
+            params.setPreferredAudioMimeTypes(MimeTypes.AUDIO_E_AC3, MimeTypes.AUDIO_AC3)
+        }
+        trackSelector.setParameters(params.build())
 
         val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
 
@@ -155,11 +173,77 @@ class PlayerActivity : Activity() {
 
         p.addListener(object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
+                AppLog.i("BŁĄD ${error.errorCodeName}: ${error.message} / ${error.cause}")
                 scheduleRestart("błąd: ${error.errorCodeName}")
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
+                val n = when (playbackState) {
+                    Player.STATE_IDLE -> "IDLE"
+                    Player.STATE_BUFFERING -> "BUFFERING"
+                    Player.STATE_READY -> "READY"
+                    else -> "ENDED"
+                }
+                AppLog.i("stan: $n (bufor ${p.totalBufferedDuration} ms)")
                 if (playbackState == Player.STATE_ENDED) scheduleRestart("koniec strumienia")
+            }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                applySavedAudio()
+            }
+        })
+
+        p.addAnalyticsListener(object : AnalyticsListener {
+            override fun onDroppedVideoFrames(
+                eventTime: AnalyticsListener.EventTime,
+                droppedFrames: Int,
+                elapsedMs: Long,
+            ) {
+                AppLog.i("utracone klatki: $droppedFrames w $elapsedMs ms")
+            }
+
+            override fun onVideoInputFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                format: Format,
+                decoderReuseEvaluation: DecoderReuseEvaluation?,
+            ) {
+                AppLog.i("wideo: ${format.width}x${format.height} ${format.sampleMimeType} fps=${format.frameRate} id=${format.id}")
+                if (prefs.afrMode == 2) ui.post { applyDisplayMode() }
+            }
+
+            override fun onAudioInputFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                format: Format,
+                decoderReuseEvaluation: DecoderReuseEvaluation?,
+            ) {
+                AppLog.i("audio: ${format.sampleMimeType} ${format.channelCount}ch ${format.sampleRate} Hz lang=${format.language} id=${format.id}")
+            }
+
+            override fun onVideoDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                AppLog.i("dekoder wideo: $decoderName (tunelowanie ${if (prefs.tunneling) "wł." else "wył."})")
+            }
+
+            override fun onAudioDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime,
+                decoderName: String,
+                initializedTimestampMs: Long,
+                initializationDurationMs: Long,
+            ) {
+                AppLog.i("dekoder audio: $decoderName")
+            }
+
+            override fun onAudioUnderrun(
+                eventTime: AnalyticsListener.EventTime,
+                bufferSize: Int,
+                bufferSizeMs: Long,
+                elapsedSinceLastFeedMs: Long,
+            ) {
+                AppLog.i("audio underrun (bufor $bufferSizeMs ms, od ostatnich danych $elapsedSinceLastFeedMs ms)")
             }
         })
 
@@ -210,6 +294,10 @@ class PlayerActivity : Activity() {
     private fun startStream(url: String) {
         val p = player ?: return
         currentUrl = url
+        streamGen++
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+            .build()
         p.setMediaSource(buildSource(url))
         p.prepare()
         p.playWhenReady = true
@@ -225,6 +313,7 @@ class PlayerActivity : Activity() {
         val delays = longArrayOf(0, 1000, 2000, 5000, 10_000)
         val d = delays[minOf(failStreak, delays.size - 1)]
         failStreak++
+        AppLog.i("WZNOWIENIE za $d ms: $reason")
         ui.postDelayed(restartRunnable, d)
     }
 
@@ -258,8 +347,9 @@ class PlayerActivity : Activity() {
                     if (ch.isNotEmpty()) playIn(bi, ch, ci)
                 }
             } catch (e: Exception) {
+                AppLog.i("błąd połączenia z OpenWebif: $e")
                 runOnUiThread {
-                    showMessage("Błąd połączenia z dekoderem: ${e.message}\nPrzytrzymaj OK lub MENU → ustawienia", 15_000)
+                    showMessage("Błąd połączenia z dekoderem: ${e.message}\nPrzytrzymaj OK → menu → Ustawienia", 15_000)
                 }
             }
         }
@@ -283,6 +373,7 @@ class PlayerActivity : Activity() {
         failStreak = 0
         ui.removeCallbacks(restartRunnable)
         restartPending = false
+        AppLog.i("kanał: ${ch.num} ${ch.name} [${bouquets.getOrNull(bIdx)?.name}] ${api.streamUrl(ch)}")
         startStream(api.streamUrl(ch))
         showBanner(ch)
         fetchNow(ch)
@@ -460,6 +551,8 @@ class PlayerActivity : Activity() {
             )
             appendLine("Tunelowanie: " + if (prefs.tunneling) "włączone" else "wyłączone")
             appendLine("Bufor: ${p.totalBufferedDuration} ms")
+            appendLine("Ekran: ${displayInfo()}")
+            appendLine("Odświeżanie: ${afrName(prefs.afrMode)}")
             if (wd != null) {
                 appendLine("Klatki: ${wd.frames}   utracone: ${wd.dropped}")
                 appendLine("Watchdog: ${wd.mode}")
@@ -544,7 +637,9 @@ class PlayerActivity : Activity() {
             KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> { play(playIndex - 1); return true }
             KeyEvent.KEYCODE_DPAD_LEFT -> { showPanel(); return true }
             KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_INFO -> { toggleStats(); return true }
-            KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS -> { openSettings(); return true }
+            KeyEvent.KEYCODE_MENU -> { showQuickMenu(); return true }
+            KeyEvent.KEYCODE_SETTINGS -> { openSettings(); return true }
+            KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK -> { showAudioDialog(); return true }
             KeyEvent.KEYCODE_LAST_CHANNEL, KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { recall(); return true }
             KeyEvent.KEYCODE_BACK -> {
                 if (stats.visibility == View.VISIBLE) { stats.visibility = View.GONE; return true }
@@ -565,7 +660,7 @@ class PlayerActivity : Activity() {
     override fun onKeyLongPress(keyCode: Int, event: KeyEvent): Boolean {
         if (panel.visibility != View.VISIBLE && isOk(keyCode)) {
             suppressOkUp = true
-            openSettings()
+            showQuickMenu()
             return true
         }
         return super.onKeyLongPress(keyCode, event)
@@ -584,24 +679,202 @@ class PlayerActivity : Activity() {
         startActivity(Intent(this, SettingsActivity::class.java))
     }
 
-    // ---------------------------------------------------------------- 50 Hz
+    // ---------------------------------------------------------------- menu podręczne
+
+    private fun showQuickMenu() {
+        val items = arrayOf(
+            "Ścieżka dźwięku…",
+            if (stats.visibility == View.VISIBLE) "Ukryj statystyki" else "Pokaż statystyki",
+            "Odświeżanie ekranu: ${afrName(prefs.afrMode)}",
+            "Wyślij log na dekoder",
+            "Ustawienia",
+        )
+        AlertDialog.Builder(this)
+            .setTitle("E2Stream ${appVersion()}")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> showAudioDialog()
+                    1 -> toggleStats()
+                    2 -> {
+                        prefs.afrMode = (prefs.afrMode + 1) % 3
+                        AppLog.i("odświeżanie: ${afrName(prefs.afrMode)}")
+                        applyDisplayMode()
+                        showMessage("Odświeżanie ekranu: ${afrName(prefs.afrMode)}")
+                    }
+                    3 -> uploadLog(true)
+                    4 -> openSettings()
+                }
+            }
+            .show()
+    }
+
+    // ---------------------------------------------------------------- dźwięk
+
+    private class AudioTrack(val group: Tracks.Group, val index: Int, val format: Format)
+
+    private fun audioTracks(): List<AudioTrack> {
+        val p = player ?: return emptyList()
+        val out = ArrayList<AudioTrack>()
+        for (g in p.currentTracks.groups) {
+            if (g.type != C.TRACK_TYPE_AUDIO) continue
+            for (i in 0 until g.length) {
+                if (g.isTrackSupported(i)) out.add(AudioTrack(g, i, g.getTrackFormat(i)))
+            }
+        }
+        return out
+    }
+
+    private fun audioLabel(f: Format): String {
+        val codec = when (f.sampleMimeType) {
+            MimeTypes.AUDIO_AC3 -> "AC3"
+            MimeTypes.AUDIO_E_AC3, MimeTypes.AUDIO_E_AC3_JOC -> "E-AC3"
+            MimeTypes.AUDIO_MPEG, MimeTypes.AUDIO_MPEG_L1, MimeTypes.AUDIO_MPEG_L2 -> "MPEG"
+            MimeTypes.AUDIO_AAC -> "AAC"
+            else -> f.sampleMimeType ?: "?"
+        }
+        val ch = if (f.channelCount > 0) " ${f.channelCount}ch" else ""
+        val label = f.label?.let { " – $it" } ?: ""
+        return "${f.language ?: "?"}  $codec$ch$label"
+    }
+
+    private fun showAudioDialog() {
+        val tracks = audioTracks()
+        if (tracks.isEmpty()) {
+            showMessage("Brak ścieżek dźwięku"); return
+        }
+        val labels = tracks.map { audioLabel(it.format) }.toTypedArray()
+        val sel = tracks.indexOfFirst { it.group.isTrackSelected(it.index) }
+        AlertDialog.Builder(this)
+            .setTitle("Ścieżka dźwięku (zapamiętywana dla kanału)")
+            .setSingleChoiceItems(labels, sel) { d, which ->
+                selectAudio(tracks[which], remember = true)
+                d.dismiss()
+            }
+            .show()
+    }
+
+    private fun selectAudio(t: AudioTrack, remember: Boolean) {
+        val p = player ?: return
+        p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+            .setOverrideForType(TrackSelectionOverride(t.group.mediaTrackGroup, t.index))
+            .build()
+        val ch = playList.getOrNull(playIndex)
+        if (remember && ch != null) {
+            val f = t.format
+            prefs.setAudioFor(ch.ref, "${f.id ?: ""}|${f.language ?: ""}|${f.sampleMimeType ?: ""}")
+            AppLog.i("wybrano audio dla ${ch.name}: ${audioLabel(f)}")
+        }
+    }
+
+    /** Po starcie strumienia (także po wznowieniu) ustawia zapamiętaną ścieżkę kanału. */
+    private fun applySavedAudio() {
+        if (audioAppliedGen == streamGen) return
+        val tracks = audioTracks()
+        if (tracks.isEmpty()) return
+        audioAppliedGen = streamGen
+        val ch = playList.getOrNull(playIndex) ?: return
+        val saved = prefs.audioFor(ch.ref)
+        if (saved.isEmpty()) return
+        val parts = saved.split("|")
+        val id = parts.getOrElse(0) { "" }
+        val lang = parts.getOrElse(1) { "" }
+        val mime = parts.getOrElse(2) { "" }
+        val match = tracks.firstOrNull { id.isNotEmpty() && it.format.id == id }
+            ?: tracks.firstOrNull { (it.format.language ?: "") == lang && (it.format.sampleMimeType ?: "") == mime }
+            ?: return
+        if (!match.group.isTrackSelected(match.index)) selectAudio(match, remember = false)
+    }
+
+    // ---------------------------------------------------------------- log na dekoder
+
+    private val logTick = object : Runnable {
+        override fun run() {
+            if (AppLog.dirty) uploadLog(false)
+            ui.postDelayed(this, 120_000)
+        }
+    }
+
+    private fun uploadLog(manual: Boolean) {
+        if (!prefs.logFtp && !manual) return
+        val host = prefs.host
+        if (host.isBlank()) return
+        val user = prefs.ftpUser
+        val pass = prefs.ftpPass
+        val dir = prefs.ftpDir
+        val name = "e2stream-" + Build.MODEL.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".log"
+        val data = AppLog.snapshot()
+        Thread {
+            try {
+                FtpUpload.upload(host, 21, user, pass, dir, name, data)
+                if (manual) runOnUiThread { showMessage("Log wysłany: $dir/$name", 5000) }
+            } catch (e: Exception) {
+                AppLog.markDirty()
+                if (manual) runOnUiThread { showMessage("Nie udało się wysłać logu: ${e.message}", 8000) }
+            }
+        }.start()
+    }
+
+    // ---------------------------------------------------------------- odświeżanie ekranu
+
+    private fun appVersion(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: ""
+    } catch (e: Exception) { "" }
+
+    private fun afrName(m: Int) = when (m) {
+        1 -> "zawsze 50 Hz"
+        2 -> "automatycznie"
+        else -> "bez zmian"
+    }
 
     @Suppress("DEPRECATION")
-    private fun applyRefreshRate(force50: Boolean) {
+    private fun displayInfo(): String {
+        if (Build.VERSION.SDK_INT < 23) return "?"
+        val d = windowManager.defaultDisplay ?: return "?"
+        val m = d.mode
+        val rates = d.supportedModes
+            .filter { it.physicalWidth == m.physicalWidth && it.physicalHeight == m.physicalHeight }
+            .map { "%.2f".format(it.refreshRate) }
+            .distinct()
+            .joinToString(", ")
+        return "${m.physicalWidth}x${m.physicalHeight} @ " + "%.2f".format(m.refreshRate) + " Hz (dostępne: $rates)"
+    }
+
+    private fun targetRate(fr: Float): Float = when {
+        fr <= 0f -> 50f // nieznane — DVB w Europie to 25/50
+        abs(fr - 25f) < 1f || abs(fr - 50f) < 1f -> 50f
+        abs(fr - 23.976f) < 0.05f -> 23.976f
+        abs(fr - 24f) < 0.5f -> 24f
+        abs(fr - 29.97f) < 0.1f || abs(fr - 59.94f) < 0.2f -> 59.94f
+        abs(fr - 30f) < 0.5f || abs(fr - 60f) < 0.5f -> 60f
+        else -> 50f
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyDisplayMode() {
         if (Build.VERSION.SDK_INT < 23) return
         val d = windowManager.defaultDisplay ?: return
         val lp = window.attributes
-        val target = if (force50) {
+        val mode = prefs.afrMode
+        var target = 0
+        if (mode != 0) {
+            val rate = if (mode == 1) 50f else targetRate(player?.videoFormat?.frameRate ?: -1f)
             val cur = d.mode
-            d.supportedModes.firstOrNull {
-                it.physicalWidth == cur.physicalWidth &&
-                    it.physicalHeight == cur.physicalHeight &&
-                    abs(it.refreshRate - 50f) < 0.5f
-            }?.modeId ?: 0
-        } else 0
+            val same = d.supportedModes.filter {
+                it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight
+            }
+            val exact = same.minByOrNull { abs(it.refreshRate - rate) }
+                ?.takeIf { abs(it.refreshRate - rate) < 0.1f }
+            val multiple = same.firstOrNull {
+                val k = it.refreshRate / rate
+                k >= 1.9f && abs(k - Math.round(k)) < 0.01f
+            }
+            target = (exact ?: multiple)?.modeId ?: 0
+            if (target == 0) AppLog.i("ekran: brak trybu dla $rate Hz (${displayInfo()})")
+        }
         if (lp.preferredDisplayModeId != target) {
             lp.preferredDisplayModeId = target
             window.attributes = lp
+            AppLog.i("ekran: preferowany tryb id=$target")
         }
     }
 }

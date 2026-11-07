@@ -55,10 +55,41 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("bufferMs", 1500)
         set(v) = putI("bufferMs", v)
 
-    /** Wymuś tryb 50 Hz ekranu podczas oglądania. */
-    var force50Hz: Boolean
-        get() = sp.getBoolean("force50Hz", false)
-        set(v) = putB("force50Hz", v)
+    /** Odświeżanie ekranu: 0 = bez zmian, 1 = zawsze 50 Hz, 2 = automatycznie wg treści. */
+    var afrMode: Int
+        get() = sp.getInt("afrMode", if (sp.getBoolean("force50Hz", false)) 1 else 0)
+        set(v) = putI("afrMode", v)
+
+    /** Preferowany język dźwięku (kody ISO 639-2 oddzielone przecinkami). */
+    var audioLang: String
+        get() = s("audioLang", "pol")
+        set(v) = putS("audioLang", v)
+
+    /** Preferuj AC3 / E-AC3 (Dolby) przed MPEG stereo. */
+    var preferAc3: Boolean
+        get() = sp.getBoolean("preferAc3", false)
+        set(v) = putB("preferAc3", v)
+
+    /** Ścieżka dźwięku zapamiętana dla kanału: "id|język|mime". */
+    fun audioFor(ref: String): String = s("audio_" + OpenWebif.key(ref))
+    fun setAudioFor(ref: String, v: String) = putS("audio_" + OpenWebif.key(ref), v)
+
+    /** Wysyłanie logu na dekoder przez FTP. */
+    var logFtp: Boolean
+        get() = sp.getBoolean("logFtp", true)
+        set(v) = putB("logFtp", v)
+
+    var ftpUser: String
+        get() = s("ftpUser", "root")
+        set(v) = putS("ftpUser", v)
+
+    var ftpPass: String
+        get() = s("ftpPass")
+        set(v) = putS("ftpPass", v)
+
+    var ftpDir: String
+        get() = s("ftpDir", "/tmp")
+        set(v) = putS("ftpDir", v)
 
     var lastBouquet: String
         get() = s("lastBouquet")
