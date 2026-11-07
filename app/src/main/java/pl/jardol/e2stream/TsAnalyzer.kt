@@ -137,25 +137,6 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         burstAvgMs = 0
         ivBurstN = 0
         ivBurstSum = 0
-        var avText = ""
-        var avAlert = false
-        if (ivVMin != Long.MAX_VALUE && ivAMin != Long.MAX_VALUE) {
-            val v = (ivVMin + ivVMax) / 2
-            val a = (ivAMin + ivAMax) / 2
-            avDiffMs = v - a
-            videoLeadMs = ivVMin
-            avText = ", PTS−PCR: wideo $ivVMin…$ivVMax ms, audio $ivAMin…$ivAMax ms, wideo−audio ${v - a} ms"
-            if (lastAvDiff != Long.MIN_VALUE && kotlin.math.abs((v - a) - lastAvDiff) > 200) {
-                avAlert = true
-                event("przesunięcie obrazu względem dźwięku zmieniło się z $lastAvDiff na ${v - a} ms")
-            }
-            if (ivVMax - ivVMin > 1500) {
-                avAlert = true
-                event("znaczniki czasu obrazu skaczą: rozrzut ${ivVMax - ivVMin} ms")
-            }
-            lastAvDiff = v - a
-        }
-        ivVMin = Long.MAX_VALUE; ivVMax = Long.MIN_VALUE; ivAMin = Long.MAX_VALUE; ivAMax = Long.MIN_VALUE
         bytes = 0; packets = 0; ccErrors = 0; teiErrors = 0; scrambled = 0
         syncLoss = 0; pcrJumps = 0; pmtChanges = 0; maxGapMs = 0; bitrateKbps = 0
         lastErrorAt = 0
@@ -560,6 +541,25 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             .format(bitrateKbps / 1000.0)
         ivBurstN = 0
         ivBurstSum = 0
+        var avText = ""
+        var avAlert = false
+        if (ivVMin != Long.MAX_VALUE && ivAMin != Long.MAX_VALUE) {
+            val v = (ivVMin + ivVMax) / 2
+            val a = (ivAMin + ivAMax) / 2
+            avDiffMs = v - a
+            videoLeadMs = ivVMin
+            avText = ", PTS−PCR: wideo $ivVMin…$ivVMax ms, audio $ivAMin…$ivAMax ms, wideo−audio ${v - a} ms"
+            if (lastAvDiff != Long.MIN_VALUE && kotlin.math.abs((v - a) - lastAvDiff) > 200) {
+                avAlert = true
+                event("przesunięcie obrazu względem dźwięku zmieniło się z $lastAvDiff na ${v - a} ms")
+            }
+            if (ivVMax - ivVMin > 1500) {
+                avAlert = true
+                event("znaczniki czasu obrazu skaczą: rozrzut ${ivVMax - ivVMin} ms")
+            }
+            lastAvDiff = v - a
+        }
+        ivVMin = Long.MAX_VALUE; ivVMax = Long.MIN_VALUE; ivAMin = Long.MAX_VALUE; ivAMax = Long.MIN_VALUE
         ivStart = now
         ivBytes = 0; ivCc = 0; ivTei = 0; ivScr = 0; ivSync = 0; ivPcr = 0; ivGap = 0
         if (errors > 0 || avAlert || now - lastHeartbeat > 60_000 || forceNext) {
