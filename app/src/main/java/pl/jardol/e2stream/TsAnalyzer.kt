@@ -30,6 +30,15 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
     private var lastInjectAt = 0L
     // --- znaczniki czasu: PTS/DTS względem PCR (ms)
     private var lastPcrAny = -1L
+    private var lastPcrTicks = -1L
+    private val pidSeen = IntArray(8192)
+    private val lastDts = LongArray(8192) { -1 }
+    private val lastStep = LongArray(8192)
+    private val offEma = LongArray(8192) { NONE }
+    private val badRun = IntArray(8192)
+    @Volatile var tsFixed = 0L
+        private set
+    private var cachedSection: ByteArray? = null
     private val videoPids = HashSet<Int>()
     private val audioPids = HashSet<Int>()
     private var mainAudioPid = -1
@@ -118,7 +127,11 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         patSeenAt = 0
         pmtSeen = false
         pmtInjected = 0
-        injectPkts = if (sid >= 0) pmtCacheGet?.invoke(sid) else null
+        cachedSection = if (sid >= 0) pmtCacheGet?.invoke(sid) else null
+        injectPkts = null
+        pidSeen.fill(0); lastDts.fill(-1); lastStep.fill(0); offEma.fill(NONE); badRun.fill(0)
+        tsFixed = 0
+        lastPcrTicks = -1
         injectIdx = 0
         injectCc = 0
         lastInjectAt = 0
@@ -254,6 +267,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         val slot = pid == 0x1fff || pid in otherPmtPids || pid == 0x11 || pid == 0x12
         if (slot && mutable && maybeInject(p, o)) return
         if (pid == 0x1fff) return
+        pidSeen[pid]++
         if (pid in otherPmtPids) {
             if (mutable) nullPacket(p, o) // PMT innego programu z PAT — ExoPlayer mógłby się na nim „zaczepić”
             return
@@ -295,7 +309,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
                 }
             }
             pidCc[pid] = cc
-            if ((b1 and 0x40) != 0 && (pid in videoPids || pid == mainAudioPid)) pes(p, payload, o + 188, pid)
+            if ((b1 and 0x40) != 0 && (pid in videoPids || pid in audioPids)) pes(p, payload, o + 188, pid, mutable)
             if (pid == pmtPid && pmtPid >= 0 && payload < o + 188) {
                 assemblePmt(p, o, payload, (b1 and 0x40) != 0)
             } else if ((b1 and 0x40) != 0 && payload < o + 188) {
@@ -310,6 +324,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             (u(p, i + 2).toLong() shl 9) or (u(p, i + 3).toLong() shl 1) or (u(p, i + 4).toLong() shr 7)
         val ms = base / 90
         lastPcrAny = ms
+        lastPcrTicks = base
         val last = lastPcrMs[pid]
         lastPcrMs[pid] = ms
         if (last >= 0 && !disc) {
@@ -323,24 +338,139 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
 
     private val pmtCandidates = HashSet<Int>()
 
-    /** Nagłówek PES: DTS (lub PTS) względem ostatniego PCR. */
-    private fun pes(p: ByteArray, s: Int, end: Int, pid: Int) {
-        if (s + 14 > end || lastPcrAny < 0) return
+    private fun readTs(p: ByteArray, i: Int): Long =
+        (((u(p, i).toLong() shr 1) and 7L) shl 30) or (u(p, i + 1).toLong() shl 22) or
+            ((u(p, i + 2).toLong() shr 1) shl 15) or (u(p, i + 3).toLong() shl 7) or (u(p, i + 4).toLong() shr 1)
+
+    private fun writeTs(p: ByteArray, i: Int, ts: Long) {
+        val t = ts and 0x1ffffffffL
+        p[i] = ((u(p, i) and 0xf0) or (((t shr 30) and 7L).toInt() shl 1) or 1).toByte()
+        p[i + 1] = ((t shr 22) and 0xffL).toInt().toByte()
+        p[i + 2] = ((((t shr 15) and 0x7fL).toInt() shl 1) or 1).toByte()
+        p[i + 3] = ((t shr 7) and 0xffL).toInt().toByte()
+        p[i + 4] = (((t and 0x7fL).toInt() shl 1) or 1).toByte()
+    }
+
+    /** Różnica a−b w taktach 90 kHz z uwzględnieniem zawinięcia 33 bitów. */
+    private fun wrapDiff(a: Long, b: Long): Long {
+        var d = (a - b) % TS_MOD
+        if (d > TS_MOD / 2) d -= TS_MOD
+        if (d < -TS_MOD / 2) d += TS_MOD
+        return d
+    }
+
+    /**
+     * Nagłówek PES: DTS (lub PTS) względem PCR. Znacznik odbiegający od PCR o ponad 3 s
+     * (np. wstawka nadawcy z innym zegarem — TTV) jest poprawiany na oczekiwany, żeby
+     * zegar odtwarzacza się nie rozjechał.
+     */
+    private fun pes(p: ByteArray, s: Int, end: Int, pid: Int, mutable: Boolean) {
+        if (s + 14 > end || lastPcrTicks < 0) return
         if (u(p, s) != 0 || u(p, s + 1) != 0 || u(p, s + 2) != 1) return
         val flags = u(p, s + 7) shr 6
         if ((flags and 2) == 0) return
-        val i = if (flags == 3 && s + 19 <= end) s + 14 else s + 9
-        val ts = (((u(p, i).toLong() shr 1) and 7L) shl 30) or (u(p, i + 1).toLong() shl 22) or
-            ((u(p, i + 2).toLong() shr 1) shl 15) or (u(p, i + 3).toLong() shl 7) or (u(p, i + 4).toLong() shr 1)
-        var off = ts / 90 - lastPcrAny
-        if (off > 13_000_000) off -= 95_443_717 else if (off < -13_000_000) off += 95_443_717 // zawinięcie 33 bitów
-        if (pid in videoPids) {
-            if (off < ivVMin) ivVMin = off
-            if (off > ivVMax) ivVMax = off
-        } else {
-            if (off < ivAMin) ivAMin = off
-            if (off > ivAMax) ivAMax = off
+        val ptsI = s + 9
+        val dtsI = if (flags == 3 && s + 19 <= end) s + 14 else -1
+        val dts = readTs(p, if (dtsI >= 0) dtsI else ptsI)
+        val off = wrapDiff(dts, lastPcrTicks)
+        val ema = offEma[pid]
+        if (ema != NONE && kotlin.math.abs(off - ema) > 3 * 90_000L && badRun[pid] < 40) {
+            badRun[pid]++
+            tsFixed++
+            val devMs = (off - ema) / 90
+            if (clean && mutable) {
+                val expected = if (lastDts[pid] >= 0 && lastStep[pid] > 0) lastDts[pid] + lastStep[pid]
+                else lastPcrTicks + ema
+                val delta = expected - dts
+                writeTs(p, ptsI, readTs(p, ptsI) + delta)
+                if (dtsI >= 0) writeTs(p, dtsI, dts + delta)
+                lastDts[pid] = expected and 0x1ffffffffL
+                event("błędny znacznik czasu pid ${pidName(pid)}: odchyłka $devMs ms od PCR — poprawiony")
+            } else {
+                event("błędny znacznik czasu pid ${pidName(pid)}: odchyłka $devMs ms od PCR")
+            }
+            return
         }
+        if (badRun[pid] >= 40) {
+            // długo utrzymująca się zmiana — to nowa, prawidłowa podstawa czasu
+            event("nowa podstawa czasu pid ${pidName(pid)}")
+            offEma[pid] = off
+        }
+        badRun[pid] = 0
+        if (lastDts[pid] >= 0) {
+            val st = wrapDiff(dts, lastDts[pid])
+            if (st in 1L..90_000L) lastStep[pid] = st
+        }
+        lastDts[pid] = dts
+        offEma[pid] = if (ema == NONE) off else ema + (off - ema) / 8
+        val offMs = off / 90
+        if (pid in videoPids) {
+            if (offMs < ivVMin) ivVMin = offMs
+            if (offMs > ivVMax) ivVMax = offMs
+        } else if (pid == mainAudioPid) {
+            if (offMs < ivAMin) ivAMin = offMs
+            if (offMs > ivAMax) ivAMax = offMs
+        }
+    }
+
+    /** CRC32 MPEG-2 (sekcje PSI). */
+    private fun crc32(b: ByteArray): Int {
+        var crc = -1
+        for (x in b) {
+            crc = crc xor (x.toInt() shl 24)
+            repeat(8) { crc = if (crc < 0) (crc shl 1) xor 0x04c11db7 else crc shl 1 }
+        }
+        return crc
+    }
+
+    /**
+     * Buduje pakiety PMT do wstawienia z zapamiętanej sekcji, zostawiając tylko te
+     * ścieżki, które dekoder faktycznie przysyła (inaczej ExoPlayer czeka na brakujące).
+     */
+    private fun buildInjection(): ByteArray? {
+        val sec = cachedSection ?: return null
+        if (sec.size < 16 || u(sec, 0) != 0x02 || pmtPid < 0) return null
+        val sl = ((u(sec, 1) and 0x0f) shl 8) or u(sec, 2)
+        val end = minOf(3 + sl - 4, sec.size - 4)
+        val pil = ((u(sec, 10) and 0x0f) shl 8) or u(sec, 11)
+        if (12 + pil > end) return null
+        val es = java.io.ByteArrayOutputStream()
+        var k = 12 + pil
+        var kept = 0
+        val missing = ArrayList<Int>()
+        while (k + 5 <= end) {
+            val epid = ((u(sec, k + 1) and 0x1f) shl 8) or u(sec, k + 2)
+            val len = 5 + (((u(sec, k + 3) and 0x0f) shl 8) or u(sec, k + 4))
+            if (k + len > end) break
+            if (pidSeen[epid] > 0) { es.write(sec, k, len); kept++ } else missing.add(epid)
+            k += len
+        }
+        val esBytes = if (kept > 0) es.toByteArray() else sec.copyOfRange(12 + pil, end)
+        val body = sec.copyOfRange(0, 12 + pil) + esBytes
+        val newSl = body.size - 3 + 4
+        body[1] = ((u(body, 1) and 0xf0) or ((newSl shr 8) and 0x0f)).toByte()
+        body[2] = (newSl and 0xff).toByte()
+        val crc = crc32(body)
+        val section = body + byteArrayOf((crc ushr 24).toByte(), (crc ushr 16).toByte(), (crc ushr 8).toByte(), crc.toByte())
+        val out = java.io.ByteArrayOutputStream()
+        var pos = 0
+        var first = true
+        while (first || pos < section.size) {
+            val pk = ByteArray(188) { 0xff.toByte() }
+            pk[0] = SYNC
+            pk[1] = ((if (first) 0x40 else 0) or ((pmtPid shr 8) and 0x1f)).toByte()
+            pk[2] = (pmtPid and 0xff).toByte()
+            pk[3] = 0x10
+            var w = 4
+            if (first) { pk[4] = 0; w = 5 }
+            val n = minOf(188 - w, section.size - pos)
+            System.arraycopy(section, pos, pk, w, n)
+            pos += n
+            first = false
+            out.write(pk)
+        }
+        onEvent("TS: PMT do wstawienia: ścieżek $kept" + if (missing.isNotEmpty()) ", pominięte (brak w strumieniu): ${missing.joinToString(",")}" else "")
+        return out.toByteArray()
     }
 
     /** Zbiera sekcję PMT z jednego lub kilku pakietów; po skompletowaniu parsuje i zapamiętuje pakiety. */
@@ -369,9 +499,10 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         if (parsePmtSection(secBuf, 0, need)) {
             if (!pmtSeen) {
                 pmtSeen = true
-                if (expectedSid >= 0 && pkts.isNotEmpty() && pkts.size <= 188 * 5) {
-                    injectPkts = pkts
-                    pmtCachePut?.invoke(expectedSid, pkts)
+                if (expectedSid >= 0 && need in 16..1024) {
+                    val sec = secBuf.copyOf(need)
+                    cachedSection = sec
+                    pmtCachePut?.invoke(expectedSid, sec)
                 }
             }
         }
@@ -379,11 +510,11 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
 
     /** Gdy po PAT przez 700 ms nie ma PMT, wstawia zapamiętany PMT kanału w miejsce mało ważnego pakietu. */
     private fun maybeInject(p: ByteArray, o: Int): Boolean {
-        val pk = injectPkts ?: return false
-        if (pmtSeen || patSeenAt == 0L || pmtPid < 0) return false
+        if (pmtSeen || patSeenAt == 0L || pmtPid < 0 || cachedSection == null) return false
         val now = SystemClock.elapsedRealtime()
         if (now - patSeenAt < 700) return false
         if (injectIdx == 0 && now - lastInjectAt < 300) return false
+        val pk = injectPkts ?: buildInjection()?.also { injectPkts = it } ?: return false
         val src = injectIdx * 188
         if (src + 188 > pk.size) { injectIdx = 0; return false }
         System.arraycopy(pk, src, p, o, 188)
@@ -578,7 +709,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         val worst = (0 until 8192).filter { pidCcErr[it] > 0 }
             .sortedByDescending { pidCcErr[it] }.take(5)
             .joinToString(" ") { "${pidName(it)}=${pidCcErr[it]}" }
-        return "TS razem: ${bytes / 1_000_000} MB, PMT pid $pmtPid ${if (pmtSeen) "jest" else "BRAK"}, wstawiony ×$pmtInjected, wyczyszczone $cleaned, CC $ccErrors, TEI $teiErrors, kodowane $scrambled, sync $syncLoss, PCR $pcrJumps, PMT $pmtChanges, maks. odczyt $maxGapMs ms" +
+        return "TS razem: ${bytes / 1_000_000} MB, PMT pid $pmtPid ${if (pmtSeen) "jest" else "BRAK"}, wstawiony ×$pmtInjected, poprawione znaczniki $tsFixed, wyczyszczone $cleaned, CC $ccErrors, TEI $teiErrors, kodowane $scrambled, sync $syncLoss, PCR $pcrJumps, PMT $pmtChanges, maks. odczyt $maxGapMs ms" +
             (if (worst.isNotEmpty()) " | CC wg PID: $worst" else "") +
             " | ostatnio wideo−audio $avDiffMs ms, wideo PTS−PCR min $videoLeadMs ms"
     }
@@ -596,5 +727,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
 
     companion object {
         private const val SYNC: Byte = 0x47
+        private const val NONE = Long.MIN_VALUE
+        private const val TS_MOD = 1L shl 33
     }
 }

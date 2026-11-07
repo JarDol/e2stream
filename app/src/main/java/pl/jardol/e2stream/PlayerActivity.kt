@@ -660,7 +660,7 @@ class PlayerActivity : Activity() {
             appendLine("Bufor: ${p.totalBufferedDuration} ms   start obrazu: " + (if (lastStartMs >= 0) "$lastStartMs ms" else "-"))
             analyzer?.let { a ->
                 appendLine("TS: %.2f Mb/s  odczyt maks. ${a.maxGapMs} ms".format(a.bitrateKbps / 1000.0))
-                appendLine("TS paczki: przerwy ~${a.burstAvgMs} ms   wyczyszczone pakiety: ${a.cleaned}")
+                appendLine("TS paczki: przerwy ~${a.burstAvgMs} ms   wyczyszczone: ${a.cleaned}   poprawione PTS: ${a.tsFixed}")
                 appendLine("TS błędy: CC ${a.ccErrors}  TEI ${a.teiErrors}  kod. ${a.scrambled}  sync ${a.syncLoss}  PCR ${a.pcrJumps}  PMT ${a.pmtChanges}")
             }
             appendLine("Ekran: ${displayInfo()}")
