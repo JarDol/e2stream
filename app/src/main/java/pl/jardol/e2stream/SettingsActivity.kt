@@ -3,6 +3,9 @@ package pl.jardol.e2stream
 import android.app.Activity
 import android.app.AlertDialog
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -11,10 +14,40 @@ import android.widget.TextView
 
 class SettingsActivity : Activity() {
 
+    private lateinit var prefs: Prefs
+    private val ui = Handler(Looper.getMainLooper())
+    private var asking = false
+
+    /** Po upływie minuty od odblokowania ustawienia blokują się ponownie. */
+    private val relock = object : Runnable {
+        override fun run() {
+            if (!isFinishing && !asking && !PinLock.isUnlocked(prefs)) {
+                asking = true
+                PinLock.ask(this@SettingsActivity, prefs, cancelable = false,
+                    onCancel = { asking = false; finish() }) { asking = false }
+            }
+            ui.postDelayed(this, 2000)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        ui.removeCallbacks(relock)
+        ui.postDelayed(relock, 2000)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        ui.removeCallbacks(relock)
+    }
+
+    private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_LONG).show()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
         val p = Prefs(this)
+        prefs = p
         p.migrate()
         AppLog.init(this, Storage.dir(this, p))
         var storageDir = p.storageDir
@@ -47,6 +80,10 @@ class SettingsActivity : Activity() {
         val tsFtp = findViewById<CheckBox>(R.id.tsFtp)
         val cleanTs = findViewById<CheckBox>(R.id.cleanTs)
         val dropRestart = findViewById<CheckBox>(R.id.dropRestart)
+        val showStats = findViewById<CheckBox>(R.id.showStats)
+        findViewById<Button>(R.id.sendLog).setOnClickListener { Tools.uploadLog(p, true) { toast(it) } }
+        findViewById<Button>(R.id.sendDumps).setOnClickListener { Tools.uploadDumps(this, p) { toast(it) } }
+        findViewById<Button>(R.id.checkUpdate).setOnClickListener { Tools.checkUpdate(this, true) { toast(it) } }
         val storageInfo = findViewById<TextView>(R.id.storageInfo)
         val bouquetsInfo = findViewById<TextView>(R.id.bouquetsInfo)
         val bouquetsBtn = findViewById<Button>(R.id.bouquets)
@@ -83,6 +120,7 @@ class SettingsActivity : Activity() {
         tsFtp.isChecked = p.tsFtp
         cleanTs.isChecked = p.cleanTs
         dropRestart.isChecked = p.dropRestart
+        showStats.isChecked = p.showStats
         storageInfo.text = "Zapis: " + (storageDir.ifBlank { Storage.dir(this, p).absolutePath })
         bouquetsInfo.text = if (hidden.isEmpty()) "Widoczne: wszystkie" else "Ukryte bukiety: ${hidden.size}"
 
@@ -197,6 +235,7 @@ class SettingsActivity : Activity() {
             p.tsFtp = tsFtp.isChecked
             p.cleanTs = cleanTs.isChecked
             p.dropRestart = dropRestart.isChecked
+            p.showStats = showStats.isChecked
             p.storageDir = storageDir
             p.hiddenBouquets = hidden
             p.bump()

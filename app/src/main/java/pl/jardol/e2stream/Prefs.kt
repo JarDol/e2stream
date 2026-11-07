@@ -128,6 +128,11 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("dropRestart", true)
         set(v) = putB("dropRestart", v)
 
+    /** Statystyki widoczne na ekranie. */
+    var showStats: Boolean
+        get() = sp.getBoolean("showStats", false)
+        set(v) = putB("showStats", v)
+
     /** Ukryte bukiety (referencje). */
     var hiddenBouquets: Set<String>
         get() = HashSet(sp.getStringSet("hiddenBouquets", emptySet()) ?: emptySet())

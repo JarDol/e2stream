@@ -35,7 +35,7 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 | GUIDE / EPG | multi-EPG bukietu (◀ ▶ zmiana czasu o 30 min) |
 | SEARCH | szukaj w EPG |
 | cyfry | wybór numeru kanału (OK zatwierdza od razu) |
-| przytrzymanie OK / MENU | menu: EPG kanału, multi-EPG, szukaj w EPG, ścieżka dźwięku, statystyki, odświeżanie ekranu, wyślij log, ustawienia |
+| przytrzymanie OK / MENU | menu: EPG kanału, multi-EPG, szukaj w EPG, ścieżka dźwięku, ustawienia (PIN) |
 | AUDIO | wybór ścieżki dźwięku |
 | LAST / ⏮ | poprzedni kanał (przełączanie dwóch ostatnich) |
 | WSTECZ ×2 | wyjście |

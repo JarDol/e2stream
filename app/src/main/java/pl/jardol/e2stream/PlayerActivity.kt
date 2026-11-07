@@ -143,6 +143,7 @@ class PlayerActivity : Activity() {
             return
         }
         AppLog.init(this, Storage.dir(this, prefs))
+        stats.visibility = if (prefs.showStats) View.VISIBLE else View.GONE
         ensureAnalyzer()
         buildPlayer()
         applyDisplayMode()
@@ -637,6 +638,7 @@ class PlayerActivity : Activity() {
     }
 
     private fun toggleStats() {
+        prefs.showStats = stats.visibility != View.VISIBLE
         if (stats.visibility == View.VISIBLE) {
             stats.visibility = View.GONE
         } else {
@@ -771,7 +773,7 @@ class PlayerActivity : Activity() {
             KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK -> { showAudioDialog(); return true }
             KeyEvent.KEYCODE_LAST_CHANNEL, KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { recall(); return true }
             KeyEvent.KEYCODE_BACK -> {
-                if (stats.visibility == View.VISIBLE) { stats.visibility = View.GONE; return true }
+                if (stats.visibility == View.VISIBLE) { stats.visibility = View.GONE; prefs.showStats = false; return true }
                 if (banner.visibility == View.VISIBLE) { banner.visibility = View.GONE; return true }
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastBackAt < 2500) {
@@ -805,23 +807,7 @@ class PlayerActivity : Activity() {
     }
 
     private fun openSettings() {
-        val pin = prefs.pin
-        if (pin.isEmpty()) {
-            startActivity(Intent(this, SettingsActivity::class.java)); return
-        }
-        val et = EditText(this)
-        et.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-        et.hint = "PIN"
-        AlertDialog.Builder(this)
-            .setTitle("Ustawienia — podaj PIN")
-            .setView(et)
-            .setPositiveButton("OK") { _, _ ->
-                if (et.text.toString() == pin) startActivity(Intent(this, SettingsActivity::class.java))
-                else showMessage("Błędny PIN")
-            }
-            .setNegativeButton("Anuluj", null)
-            .show()
-        et.requestFocus()
+        PinLock.ask(this, prefs) { startActivity(Intent(this, SettingsActivity::class.java)) }
     }
 
     // ---------------------------------------------------------------- zrzut przy zawieszeniu
@@ -888,50 +874,9 @@ class PlayerActivity : Activity() {
 
     // ---------------------------------------------------------------- aktualizacja
 
-    private fun checkUpdate(manual: Boolean) {
-        if (manual) showMessage("Sprawdzam aktualizację…")
-        Thread {
-            val info = try { Updater.latest() } catch (e: Exception) {
-                AppLog.i("aktualizacja: błąd $e"); null
-            }
-            runOnUiThread {
-                val cur = appVersion()
-                when {
-                    info == null -> if (manual) showMessage("Nie udało się sprawdzić aktualizacji")
-                    Updater.newer(info.version, cur) ->
-                        if (manual) askUpdate(info)
-                        else showMessage("Dostępna wersja ${info.version} — przytrzymaj OK → Aktualizacja", 10_000)
-                    else -> if (manual) showMessage("Masz najnowszą wersję ($cur)")
-                }
-            }
-        }.start()
-    }
+    private fun checkUpdate(manual: Boolean) = Tools.checkUpdate(this, manual) { showMessage(it, 8000) }
 
-    private fun askUpdate(info: Updater.Info) {
-        AlertDialog.Builder(this)
-            .setTitle("Aktualizacja E2Stream")
-            .setMessage("Dostępna wersja ${info.version} (masz ${appVersion()}). Pobrać i zainstalować?")
-            .setPositiveButton("Tak") { _, _ ->
-                AppLog.i("aktualizacja: pobieram ${info.url}")
-                Thread {
-                    try {
-                        val apk = Updater.download(this, info) { pct ->
-                            if (pct % 10 == 0) runOnUiThread { showMessage("Pobieranie $pct%", 3000) }
-                        }
-                        runOnUiThread {
-                            if (!Updater.install(this, apk)) {
-                                showMessage("Zezwól E2Stream na instalowanie aplikacji i wybierz Aktualizację ponownie", 10_000)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        AppLog.i("aktualizacja: błąd pobierania $e")
-                        runOnUiThread { showMessage("Błąd pobierania: ${e.message}", 8000) }
-                    }
-                }.start()
-            }
-            .setNegativeButton("Nie", null)
-            .show()
-    }
+
 
     // ---------------------------------------------------------------- menu podręczne
 
@@ -941,24 +886,6 @@ class PlayerActivity : Activity() {
             "Multi-EPG bukietu" to { epg.showMultiEpg() },
             "Szukaj w EPG" to { epg.showSearch() },
             "Ścieżka dźwięku…" to { showAudioDialog() },
-            (if (stats.visibility == View.VISIBLE) "Ukryj statystyki" else "Pokaż statystyki") to { toggleStats() },
-            "Odświeżanie ekranu: ${afrName(prefs.afrMode)}" to {
-                prefs.afrMode = (prefs.afrMode + 1) % 3
-                AppLog.i("odświeżanie: ${afrName(prefs.afrMode)}")
-                applyDisplayMode()
-                showMessage("Odświeżanie ekranu: ${afrName(prefs.afrMode)}")
-            },
-            "Tunelowanie: ${if (prefs.tunneling) "włączone" else "wyłączone"}" to {
-                prefs.tunneling = !prefs.tunneling
-                AppLog.i("tunelowanie przełączone: ${prefs.tunneling}")
-                releasePlayer()
-                buildPlayer()
-                currentUrl?.let { startStream(it) }
-                showMessage("Tunelowanie: ${if (prefs.tunneling) "włączone" else "wyłączone"}")
-            },
-            "Wyślij log na dekoder" to { uploadLog(true) },
-            "Wyślij zrzuty TS na dekoder" to { uploadDumps() },
-            "Aktualizacja" to { checkUpdate(true) },
             "Ustawienia" to { openSettings() },
         )
         AlertDialog.Builder(this)
@@ -1072,58 +999,9 @@ class PlayerActivity : Activity() {
         }
     }
 
-    private fun uploadLog(manual: Boolean) {
-        if (!prefs.logFtp && !manual) return
-        val host = prefs.host
-        if (host.isBlank()) return
-        val user = prefs.ftpUser
-        val pass = prefs.ftpPass
-        val dir = prefs.ftpDir
-        val name = "e2stream-" + Build.MODEL.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".log"
-        val data = AppLog.snapshot()
-        Thread {
-            try {
-                FtpUpload.upload(host, 21, user, pass, dir, name, data)
-                if (manual) runOnUiThread { showMessage("Log wysłany: $dir/$name", 5000) }
-            } catch (e: Exception) {
-                AppLog.markDirty()
-                if (manual) runOnUiThread { showMessage("Nie udało się wysłać logu: ${e.message}", 8000) }
-            }
-        }.start()
-    }
+    private fun uploadLog(manual: Boolean) = Tools.uploadLog(prefs, manual) { showMessage(it, 6000) }
 
-    /** Wysyła wszystkie zrzuty stall-*.ts (z wybranego miejsca i katalogu domyślnego) przez FTP. */
-    private fun uploadDumps() {
-        val dirs = listOfNotNull(Storage.dir(this, prefs), getExternalFilesDir(null), filesDir).distinct()
-        val files = dirs.flatMap { d -> d.listFiles { f -> f.name.startsWith("stall-") && f.name.endsWith(".ts") }?.toList() ?: emptyList() }
-            .distinctBy { it.name }
-            .sortedBy { it.name }
-        if (files.isEmpty()) { showMessage("Brak zrzutów TS"); return }
-        val host = prefs.host
-        val user = prefs.ftpUser
-        val pass = prefs.ftpPass
-        val dir = prefs.ftpDir
-        showMessage("Wysyłam ${files.size} zrzut(ów) TS…", 5000)
-        Thread {
-            var ok = 0
-            var err = ""
-            for (f in files) {
-                try {
-                    FtpUpload.upload(host, 21, user, pass, dir, f.name, f.readBytes())
-                    ok++
-                    AppLog.i("zrzut TS wysłany na dekoder: $dir/${f.name}")
-                    runOnUiThread { showMessage("Wysłano $ok/${files.size}: ${f.name}", 4000) }
-                } catch (e: Exception) {
-                    err = e.message ?: e.toString()
-                    AppLog.i("wysyłanie ${f.name} nieudane: $e")
-                }
-            }
-            runOnUiThread {
-                if (err.isEmpty()) showMessage("Wysłano $ok zrzut(ów) do $dir", 8000)
-                else showMessage("Wysłano $ok/${files.size}. Błąd: $err", 12_000)
-            }
-        }.start()
-    }
+
 
     // ---------------------------------------------------------------- odświeżanie ekranu
 
