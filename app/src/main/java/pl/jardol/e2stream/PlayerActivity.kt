@@ -50,6 +50,7 @@ class PlayerActivity : Activity() {
 
     private lateinit var prefs: Prefs
     private lateinit var api: OpenWebif
+    private lateinit var epg: EpgUi
 
     private lateinit var playerView: PlayerView
     private lateinit var panel: LinearLayout
@@ -109,6 +110,13 @@ class PlayerActivity : Activity() {
         api = OpenWebif(prefs)
         prefs.migrate()
         AppLog.init(this, Storage.dir(this, prefs))
+        epg = EpgUi(this, api, io, object : EpgUi.Host {
+            override fun current(): Channel? = playList.getOrNull(playIndex)
+            override fun bouquetChannels(): List<Channel> = playList
+            override fun bouquetName(): String = bouquets.getOrNull(playBouquet)?.name ?: ""
+            override fun zapTo(ref: String) = this@PlayerActivity.zapTo(ref)
+            override fun message(t: String) = showMessage(t, 4000)
+        })
         AppLog.i("=== Start E2Stream ${appVersion()} | ${Build.MANUFACTURER} ${Build.MODEL} | Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) | ekran: ${displayInfo()}")
 
         playerView = findViewById(R.id.playerView)
@@ -712,6 +720,10 @@ class PlayerActivity : Activity() {
                 KeyEvent.KEYCODE_DPAD_LEFT -> { panelBouquetStep(-1); return true }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> { panelBouquetStep(1); return true }
                 KeyEvent.KEYCODE_BACK -> { hidePanel(); return true }
+                KeyEvent.KEYCODE_INFO, KeyEvent.KEYCODE_MENU -> {
+                    panelList.getOrNull(list.selectedItemPosition)?.let { epg.showChannelEpg(it) }
+                    return true
+                }
                 KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> {
                     if (panelList.isNotEmpty()) list.setSelection(maxOf(0, list.selectedItemPosition - 10))
                     return true
@@ -750,7 +762,10 @@ class PlayerActivity : Activity() {
             KeyEvent.KEYCODE_DPAD_UP -> { play(playIndex + if (prefs.invertUpDown) -1 else 1); return true }
             KeyEvent.KEYCODE_DPAD_DOWN -> { play(playIndex + if (prefs.invertUpDown) 1 else -1); return true }
             KeyEvent.KEYCODE_DPAD_LEFT -> { showPanel(); return true }
-            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_INFO -> { toggleStats(); return true }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> { toggleStats(); return true }
+            KeyEvent.KEYCODE_INFO -> { epg.showChannelEpg(); return true }
+            KeyEvent.KEYCODE_GUIDE, KeyEvent.KEYCODE_TV_DATA_SERVICE -> { epg.showMultiEpg(); return true }
+            KeyEvent.KEYCODE_SEARCH -> { epg.showSearch(); return true }
             KeyEvent.KEYCODE_MENU -> { showQuickMenu(); return true }
             KeyEvent.KEYCODE_SETTINGS -> { openSettings(); return true }
             KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK -> { showAudioDialog(); return true }
@@ -907,43 +922,54 @@ class PlayerActivity : Activity() {
     // ---------------------------------------------------------------- menu podręczne
 
     private fun showQuickMenu() {
-        val items = arrayOf(
-            "Ścieżka dźwięku…",
-            if (stats.visibility == View.VISIBLE) "Ukryj statystyki" else "Pokaż statystyki",
-            "Odświeżanie ekranu: ${afrName(prefs.afrMode)}",
-            "Tunelowanie: ${if (prefs.tunneling) "włączone" else "wyłączone"}",
-            "Wyślij log na dekoder",
-            "Wyślij zrzuty TS na dekoder",
-            "Aktualizacja",
-            "Ustawienia",
+        val items = listOf<Pair<String, () -> Unit>>(
+            "EPG kanału" to { epg.showChannelEpg() },
+            "Multi-EPG bukietu" to { epg.showMultiEpg() },
+            "Szukaj w EPG" to { epg.showSearch() },
+            "Ścieżka dźwięku…" to { showAudioDialog() },
+            (if (stats.visibility == View.VISIBLE) "Ukryj statystyki" else "Pokaż statystyki") to { toggleStats() },
+            "Odświeżanie ekranu: ${afrName(prefs.afrMode)}" to {
+                prefs.afrMode = (prefs.afrMode + 1) % 3
+                AppLog.i("odświeżanie: ${afrName(prefs.afrMode)}")
+                applyDisplayMode()
+                showMessage("Odświeżanie ekranu: ${afrName(prefs.afrMode)}")
+            },
+            "Tunelowanie: ${if (prefs.tunneling) "włączone" else "wyłączone"}" to {
+                prefs.tunneling = !prefs.tunneling
+                AppLog.i("tunelowanie przełączone: ${prefs.tunneling}")
+                releasePlayer()
+                buildPlayer()
+                currentUrl?.let { startStream(it) }
+                showMessage("Tunelowanie: ${if (prefs.tunneling) "włączone" else "wyłączone"}")
+            },
+            "Wyślij log na dekoder" to { uploadLog(true) },
+            "Wyślij zrzuty TS na dekoder" to { uploadDumps() },
+            "Aktualizacja" to { checkUpdate(true) },
+            "Ustawienia" to { openSettings() },
         )
         AlertDialog.Builder(this)
             .setTitle("E2Stream ${appVersion()}")
-            .setItems(items) { _, which ->
-                when (which) {
-                    0 -> showAudioDialog()
-                    1 -> toggleStats()
-                    2 -> {
-                        prefs.afrMode = (prefs.afrMode + 1) % 3
-                        AppLog.i("odświeżanie: ${afrName(prefs.afrMode)}")
-                        applyDisplayMode()
-                        showMessage("Odświeżanie ekranu: ${afrName(prefs.afrMode)}")
-                    }
-                    3 -> {
-                        prefs.tunneling = !prefs.tunneling
-                        AppLog.i("tunelowanie przełączone: ${prefs.tunneling}")
-                        releasePlayer()
-                        buildPlayer()
-                        currentUrl?.let { startStream(it) }
-                        showMessage("Tunelowanie: ${if (prefs.tunneling) "włączone" else "wyłączone"}")
-                    }
-                    4 -> uploadLog(true)
-                    5 -> uploadDumps()
-                    6 -> checkUpdate(true)
-                    7 -> openSettings()
+            .setItems(items.map { it.first }.toTypedArray()) { _, which -> items[which].second() }
+            .show()
+    }
+
+    /** Przełącza na kanał o danej referencji (z bieżącego lub innego widocznego bukietu). */
+    private fun zapTo(ref: String) {
+        val k = OpenWebif.key(ref)
+        val i = playList.indexOfFirst { OpenWebif.key(it.ref) == k }
+        if (i >= 0) { hidePanel(); play(i); return }
+        val bq = bouquets
+        io.execute {
+            for ((bi, b) in bq.withIndex()) {
+                val ch = try { api.channels(b) } catch (e: Exception) { continue }
+                val j = ch.indexOfFirst { OpenWebif.key(it.ref) == k }
+                if (j >= 0) {
+                    runOnUiThread { hidePanel(); playIn(bi, ch, j) }
+                    return@execute
                 }
             }
-            .show()
+            runOnUiThread { showMessage("Tego kanału nie ma w widocznych bukietach") }
+        }
     }
 
     // ---------------------------------------------------------------- dźwięk

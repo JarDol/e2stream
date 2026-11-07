@@ -9,6 +9,19 @@ import java.net.URLEncoder
 
 data class Bouquet(val name: String, val ref: String)
 
+data class EpgEvent(
+    val id: Int,
+    val begin: Long,
+    val duration: Long,
+    val title: String,
+    val shortDesc: String,
+    val longDesc: String,
+    val sref: String,
+    val sname: String,
+) {
+    val end: Long get() = begin + duration
+}
+
 class Channel(val num: Int, val name: String, val ref: String) {
     @Volatile
     var now: String = ""
@@ -96,6 +109,41 @@ class OpenWebif(private val p: Prefs) {
         val arr = get("/api/epgservicenow?sRef=" + enc(ref)).optJSONArray("events") ?: return null
         val o = arr.optJSONObject(0) ?: return null
         return o.optString("title").takeIf { it.isNotBlank() }
+    }
+
+    private fun events(js: JSONObject): List<EpgEvent> {
+        val arr = js.optJSONArray("events") ?: return emptyList()
+        val out = ArrayList<EpgEvent>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val title = o.optString("title")
+            if (title.isBlank() || title == "None") continue
+            out.add(
+                EpgEvent(
+                    id = o.optInt("id"),
+                    begin = o.optLong("begin_timestamp"),
+                    duration = o.optLong("duration_sec"),
+                    title = title,
+                    shortDesc = o.optString("shortdesc").takeUnless { it == "None" } ?: "",
+                    longDesc = o.optString("longdesc").takeUnless { it == "None" } ?: "",
+                    sref = o.optString("sref"),
+                    sname = o.optString("sname"),
+                )
+            )
+        }
+        return out.sortedBy { it.begin }
+    }
+
+    /** Pełny program jednego kanału. */
+    fun epgService(ref: String): List<EpgEvent> = events(get("/api/epgservice?sRef=" + enc(ref)))
+
+    /** Wyszukiwanie w EPG po tytule. */
+    fun epgSearch(q: String): List<EpgEvent> = events(get("/api/epgsearch?search=" + enc(q)))
+
+    /** Nagranie audycji na dekoderze (timer z EPG). */
+    fun timerAdd(ref: String, eventId: Int): Pair<Boolean, String> {
+        val js = get("/api/timeraddbyeventid?sRef=" + enc(ref) + "&eventid=" + eventId)
+        return js.optBoolean("result") to js.optString("message")
     }
 
     fun streamUrl(c: Channel): String =

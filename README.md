@@ -16,6 +16,7 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
   zmiany PMT, przerwy w napływie danych — w statystykach i w logu.
 * Przy zawieszeniu zapis ostatnich sekund strumienia (`stall-*.ts`, bufor 16 MB) do analizy np. TSDuck.
 * Miejsce zapisu: pamięć urządzenia lub pendrive/karta (katalog `Android/data/pl.jardol.e2stream/files/`).
+* EPG kanału, multi-EPG bukietu i wyszukiwanie w EPG; z audycji: przełącz na kanał lub nagraj na dekoderze.
 * Wybór widocznych bukietów, PIN do ustawień, aktualizacja aplikacji z GitHub (menu → Aktualizacja).
 * Log diagnostyczny: lokalnie w `Android/data/pl.jardol.e2stream/files/e2stream.log`
   i co 2 minuty przez FTP na dekoder (domyślnie `/media/hdd/e2stream/e2stream-<model>.log`).
@@ -29,9 +30,12 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 | ▲ / CH+ | następny kanał |
 | ▼ / CH− | poprzedni kanał |
 | ◀ | lista kanałów |
-| ▶ / INFO | statystyki (rozdzielczość, kodek, klatki, ekran, liczba wznowień i ostatni powód) |
+| ▶ | statystyki (rozdzielczość, kodek, klatki, ekran, liczba wznowień i ostatni powód) |
+| INFO | EPG kanału (na liście kanałów: EPG zaznaczonego kanału) |
+| GUIDE / EPG | multi-EPG bukietu (◀ ▶ zmiana czasu o 30 min) |
+| SEARCH | szukaj w EPG |
 | cyfry | wybór numeru kanału (OK zatwierdza od razu) |
-| przytrzymanie OK / MENU | menu: ścieżka dźwięku, statystyki, odświeżanie ekranu, wyślij log, ustawienia |
+| przytrzymanie OK / MENU | menu: EPG kanału, multi-EPG, szukaj w EPG, ścieżka dźwięku, statystyki, odświeżanie ekranu, wyślij log, ustawienia |
 | AUDIO | wybór ścieżki dźwięku |
 | LAST / ⏮ | poprzedni kanał (przełączanie dwóch ostatnich) |
 | WSTECZ ×2 | wyjście |
