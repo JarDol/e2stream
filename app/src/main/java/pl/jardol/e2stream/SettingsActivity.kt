@@ -127,7 +127,6 @@ class SettingsActivity : Activity() {
             packageManager.getPackageInfo(packageName, 0).versionName ?: ""
         } catch (e: Exception) { "" }
         findViewById<TextView>(R.id.version).text = "E2Stream $ver"
-        findViewById<TextView>(R.id.logPath).text = "Log lokalnie: ${AppLog.path()}"
 
         discover.setOnClickListener {
             discover.isEnabled = false
