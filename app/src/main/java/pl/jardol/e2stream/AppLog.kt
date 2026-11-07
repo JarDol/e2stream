@@ -23,10 +23,12 @@ object AppLog {
     var dirty = false
         private set
 
-    fun init(ctx: Context) {
-        val dir = ctx.getExternalFilesDir(null) ?: ctx.filesDir
-        file = File(dir, "e2stream.log")
+    fun init(ctx: Context, dir: File? = null) {
+        val d = dir ?: ctx.getExternalFilesDir(null) ?: ctx.filesDir
+        synchronized(lock) { file = File(d, "e2stream.log") }
     }
+
+    fun dir(): File? = file?.parentFile
 
     fun path(): String = file?.absolutePath ?: "-"
 

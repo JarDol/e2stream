@@ -8,11 +8,13 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.text.InputType
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.BaseAdapter
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.TextView
@@ -24,6 +26,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -36,6 +39,10 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.ui.PlayerView
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.abs
 
@@ -83,6 +90,10 @@ class PlayerActivity : Activity() {
     private var suppressOkUp = false
     private var lastBackAt = 0L
     private var streamGen = 0
+    private var analyzer: TsAnalyzer? = null
+    private var analyzerRing = -1
+    private var lastDumpAt = 0L
+    private var updateChecked = false
     private var audioAppliedGen = -1
 
     // ---------------------------------------------------------------- cykl życia
@@ -119,8 +130,14 @@ class PlayerActivity : Activity() {
             openSettings()
             return
         }
+        AppLog.init(this, Storage.dir(this, prefs))
+        ensureAnalyzer()
         buildPlayer()
         applyDisplayMode()
+        if (prefs.checkUpdates && !updateChecked) {
+            updateChecked = true
+            ui.postDelayed({ checkUpdate(false) }, 8000)
+        }
         ui.removeCallbacks(logTick)
         ui.postDelayed(logTick, 120_000)
         if (settingsVersion != prefs.version || bouquets.isEmpty()) {
@@ -262,6 +279,23 @@ class PlayerActivity : Activity() {
         }
         ui.removeCallbacks(statsTick)
         ui.post(statsTick)
+        ui.removeCallbacks(tsTick)
+        ui.postDelayed(tsTick, 10_000)
+    }
+
+    private fun ensureAnalyzer() {
+        val ring = if (prefs.saveTs) prefs.tsRingMb.coerceIn(2, 64) * 1_000_000 else 0
+        if (analyzer == null || ring != analyzerRing) {
+            analyzer = TsAnalyzer(ring) { msg -> AppLog.i(msg) }
+            analyzerRing = ring
+        }
+    }
+
+    private val tsTick = object : Runnable {
+        override fun run() {
+            analyzer?.interval()?.let { AppLog.i(it) }
+            ui.postDelayed(this, 10_000)
+        }
     }
 
     private fun releasePlayer() {
@@ -269,6 +303,7 @@ class PlayerActivity : Activity() {
         watchdog = null
         ui.removeCallbacks(restartRunnable)
         ui.removeCallbacks(statsTick)
+        ui.removeCallbacks(tsTick)
         restartPending = false
         playerView.player = null
         player?.release()
@@ -287,7 +322,10 @@ class PlayerActivity : Activity() {
             DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
                 DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
         )
-        return ProgressiveMediaSource.Factory(http, extractors)
+        val analyzing = DataSource.Factory {
+            AnalyzingDataSource(http.createDataSource()) { analyzer }
+        }
+        return ProgressiveMediaSource.Factory(analyzing, extractors)
             .createMediaSource(MediaItem.fromUri(url))
     }
 
@@ -295,6 +333,7 @@ class PlayerActivity : Activity() {
         val p = player ?: return
         currentUrl = url
         streamGen++
+        analyzer?.reset()
         p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
             .build()
@@ -313,6 +352,7 @@ class PlayerActivity : Activity() {
         val delays = longArrayOf(0, 1000, 2000, 5000, 10_000)
         val d = delays[minOf(failStreak, delays.size - 1)]
         failStreak++
+        dumpStall(reason)
         AppLog.i("WZNOWIENIE za $d ms: $reason")
         ui.postDelayed(restartRunnable, d)
     }
@@ -332,8 +372,12 @@ class PlayerActivity : Activity() {
         showMessage("Łączenie z ${prefs.host}…", 10_000)
         io.execute {
             try {
-                val bq = api.bouquets()
-                val bi = bq.indexOfFirst { it.ref == prefs.lastBouquet }.let { if (it < 0) 0 else it }
+                val all = api.bouquets()
+                val hidden = prefs.hiddenBouquets
+                val bq = all.filter { it.ref !in hidden }.ifEmpty { all }
+                AppLog.i("bukiety: ${bq.size} z ${all.size} widocznych")
+                val bi = if (!prefs.resumeLast) 0
+                else bq.indexOfFirst { it.ref == prefs.lastBouquet }.let { if (it < 0) 0 else it }
                 val ch = if (bq.isEmpty()) emptyList() else api.channels(bq[bi])
                 runOnUiThread {
                     bouquets = bq
@@ -342,7 +386,8 @@ class PlayerActivity : Activity() {
                         return@runOnUiThread
                     }
                     message.visibility = View.GONE
-                    val ci = ch.indexOfFirst { it.ref == prefs.lastChannel }.let { if (it < 0) 0 else it }
+                    val ci = if (!prefs.resumeLast) 0
+                    else ch.indexOfFirst { it.ref == prefs.lastChannel }.let { if (it < 0) 0 else it }
                     playIndex = -1
                     if (ch.isNotEmpty()) playIn(bi, ch, ci)
                 }
@@ -504,7 +549,7 @@ class PlayerActivity : Activity() {
         bannerNow.text = ch.now
         banner.visibility = View.VISIBLE
         ui.removeCallbacks(hideBanner)
-        ui.postDelayed(hideBanner, 4000)
+        ui.postDelayed(hideBanner, prefs.bannerSec.coerceIn(1, 30) * 1000L)
     }
 
     private fun showMessage(t: String, ms: Long = 3000) {
@@ -551,10 +596,14 @@ class PlayerActivity : Activity() {
             )
             appendLine("Tunelowanie: " + if (prefs.tunneling) "włączone" else "wyłączone")
             appendLine("Bufor: ${p.totalBufferedDuration} ms")
+            analyzer?.let { a ->
+                appendLine("TS: %.2f Mb/s  odczyt maks. ${a.maxGapMs} ms".format(a.bitrateKbps / 1000.0))
+                appendLine("TS błędy: CC ${a.ccErrors}  TEI ${a.teiErrors}  kod. ${a.scrambled}  sync ${a.syncLoss}  PCR ${a.pcrJumps}  PMT ${a.pmtChanges}")
+            }
             appendLine("Ekran: ${displayInfo()}")
             appendLine("Odświeżanie: ${afrName(prefs.afrMode)}")
             if (wd != null) {
-                appendLine("Klatki: ${wd.frames}   utracone: ${wd.dropped}")
+                appendLine("Klatki: ${wd.frames}   utracone: ${wd.dropped}" + if (prefs.tunneling) " (w tunelu niewidoczne)" else "")
                 appendLine("Watchdog: ${wd.mode}")
             } else {
                 appendLine("Watchdog: wyłączony")
@@ -633,8 +682,10 @@ class PlayerActivity : Activity() {
         }
 
         when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_CHANNEL_UP -> { play(playIndex + 1); return true }
-            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_CHANNEL_DOWN -> { play(playIndex - 1); return true }
+            KeyEvent.KEYCODE_CHANNEL_UP -> { play(playIndex + 1); return true }
+            KeyEvent.KEYCODE_CHANNEL_DOWN -> { play(playIndex - 1); return true }
+            KeyEvent.KEYCODE_DPAD_UP -> { play(playIndex + if (prefs.invertUpDown) -1 else 1); return true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> { play(playIndex + if (prefs.invertUpDown) 1 else -1); return true }
             KeyEvent.KEYCODE_DPAD_LEFT -> { showPanel(); return true }
             KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_INFO -> { toggleStats(); return true }
             KeyEvent.KEYCODE_MENU -> { showQuickMenu(); return true }
@@ -676,7 +727,118 @@ class PlayerActivity : Activity() {
     }
 
     private fun openSettings() {
-        startActivity(Intent(this, SettingsActivity::class.java))
+        val pin = prefs.pin
+        if (pin.isEmpty()) {
+            startActivity(Intent(this, SettingsActivity::class.java)); return
+        }
+        val et = EditText(this)
+        et.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        et.hint = "PIN"
+        AlertDialog.Builder(this)
+            .setTitle("Ustawienia — podaj PIN")
+            .setView(et)
+            .setPositiveButton("OK") { _, _ ->
+                if (et.text.toString() == pin) startActivity(Intent(this, SettingsActivity::class.java))
+                else showMessage("Błędny PIN")
+            }
+            .setNegativeButton("Anuluj", null)
+            .show()
+        et.requestFocus()
+    }
+
+    // ---------------------------------------------------------------- zrzut przy zawieszeniu
+
+    private fun decoderInfo(): String {
+        val c = player?.videoDecoderCounters ?: return "dekoder: -"
+        c.ensureUpdated()
+        return "dekoder: wyrenderowane ${c.renderedOutputBufferCount}, utracone ${c.droppedBufferCount}, pominięte ${c.skippedOutputBufferCount}, maks. kolejno utracone ${c.maxConsecutiveDroppedBufferCount}"
+    }
+
+    private fun dumpStall(reason: String) {
+        val a = analyzer ?: return
+        AppLog.i("ZAWIESZENIE ($reason) | ${a.summary()} | ${decoderInfo()}")
+        if (!prefs.saveTs) return
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastDumpAt < 60_000) {
+            AppLog.i("zrzut TS pominięty (poprzedni < 60 s temu)"); return
+        }
+        lastDumpAt = now
+        val data = a.ringSnapshot()
+        if (data.isEmpty()) return
+        val ch = playList.getOrNull(playIndex)
+        val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+        val safe = (ch?.name ?: "kanal").replace(Regex("[^A-Za-z0-9_-]"), "_").take(30)
+        val name = "stall-$stamp-$safe.ts"
+        val dir = Storage.dir(this, prefs)
+        val ftp = prefs.tsFtp
+        val host = prefs.host
+        val user = prefs.ftpUser
+        val pass = prefs.ftpPass
+        val ftpDir = prefs.ftpDir
+        Thread {
+            try {
+                File(dir, name).writeBytes(data)
+                Storage.prune(dir, "stall-", 10)
+                AppLog.i("zrzut TS: ${dir.absolutePath}/$name (${data.size / 1024} kB)")
+            } catch (e: Exception) {
+                AppLog.i("zrzut TS nieudany: $e")
+            }
+            if (ftp) {
+                try {
+                    FtpUpload.upload(host, 21, user, pass, ftpDir, name, data)
+                    AppLog.i("zrzut TS wysłany na dekoder: $ftpDir/$name")
+                } catch (e: Exception) {
+                    AppLog.i("wysyłanie zrzutu TS nieudane: $e")
+                }
+            }
+        }.start()
+    }
+
+    // ---------------------------------------------------------------- aktualizacja
+
+    private fun checkUpdate(manual: Boolean) {
+        if (manual) showMessage("Sprawdzam aktualizację…")
+        Thread {
+            val info = try { Updater.latest() } catch (e: Exception) {
+                AppLog.i("aktualizacja: błąd $e"); null
+            }
+            runOnUiThread {
+                val cur = appVersion()
+                when {
+                    info == null -> if (manual) showMessage("Nie udało się sprawdzić aktualizacji")
+                    Updater.newer(info.version, cur) ->
+                        if (manual) askUpdate(info)
+                        else showMessage("Dostępna wersja ${info.version} — przytrzymaj OK → Aktualizacja", 10_000)
+                    else -> if (manual) showMessage("Masz najnowszą wersję ($cur)")
+                }
+            }
+        }.start()
+    }
+
+    private fun askUpdate(info: Updater.Info) {
+        AlertDialog.Builder(this)
+            .setTitle("Aktualizacja E2Stream")
+            .setMessage("Dostępna wersja ${info.version} (masz ${appVersion()}). Pobrać i zainstalować?")
+            .setPositiveButton("Tak") { _, _ ->
+                AppLog.i("aktualizacja: pobieram ${info.url}")
+                Thread {
+                    try {
+                        val apk = Updater.download(this, info) { pct ->
+                            if (pct % 10 == 0) runOnUiThread { showMessage("Pobieranie $pct%", 3000) }
+                        }
+                        runOnUiThread {
+                            if (!Updater.install(this, apk)) {
+                                showMessage("Zezwól E2Stream na instalowanie aplikacji i wybierz Aktualizację ponownie", 10_000)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        AppLog.i("aktualizacja: błąd pobierania $e")
+                        runOnUiThread { showMessage("Błąd pobierania: ${e.message}", 8000) }
+                    }
+                }.start()
+            }
+            .setNegativeButton("Nie", null)
+            .show()
     }
 
     // ---------------------------------------------------------------- menu podręczne
@@ -687,6 +849,7 @@ class PlayerActivity : Activity() {
             if (stats.visibility == View.VISIBLE) "Ukryj statystyki" else "Pokaż statystyki",
             "Odświeżanie ekranu: ${afrName(prefs.afrMode)}",
             "Wyślij log na dekoder",
+            "Aktualizacja",
             "Ustawienia",
         )
         AlertDialog.Builder(this)
@@ -702,7 +865,8 @@ class PlayerActivity : Activity() {
                         showMessage("Odświeżanie ekranu: ${afrName(prefs.afrMode)}")
                     }
                     3 -> uploadLog(true)
-                    4 -> openSettings()
+                    4 -> checkUpdate(true)
+                    5 -> openSettings()
                 }
             }
             .show()

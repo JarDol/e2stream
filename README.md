@@ -12,6 +12,11 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 * Wyszukiwanie dekoderów w sieci lokalnej (ustawienia → „Szukaj dekoderów w sieci”).
 * Wybór ścieżki dźwięku zapamiętywany osobno dla każdego kanału; preferowany język i opcjonalnie AC3.
 * Odświeżanie ekranu: bez zmian / zawsze 50 Hz / automatycznie wg treści.
+* Analizator strumienia TS: błędy CC, TEI, pakiety kodowane, utrata synchronizacji, skoki PCR,
+  zmiany PMT, przerwy w napływie danych — w statystykach i w logu.
+* Przy zawieszeniu zapis ostatnich sekund strumienia (`stall-*.ts`, bufor 16 MB) do analizy np. TSDuck.
+* Miejsce zapisu: pamięć urządzenia lub pendrive/karta (katalog `Android/data/pl.jardol.e2stream/files/`).
+* Wybór widocznych bukietów, PIN do ustawień, aktualizacja aplikacji z GitHub (menu → Aktualizacja).
 * Log diagnostyczny: lokalnie w `Android/data/pl.jardol.e2stream/files/e2stream.log`
   i co 2 minuty przez FTP na dekoder (domyślnie `/tmp/e2stream-<model>.log`).
 
@@ -43,9 +48,9 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 
 ## Budowanie
 
-Repozytorium zawiera workflow `.github/workflows/build.yml`. Po pushu na `main` APK
-`e2stream-X.Y.Z.apk` pojawia się w zakładce **Actions → artefakty**. Tag `vX.Y.Z` tworzy
-dodatkowo GitHub Release z APK.
+Workflow `.github/workflows/build.yml` buduje APK przy każdym pushu na `main`.
+Jeśli wersja (`versionName`) jest nowa, automatycznie tworzy Release `vX.Y.Z`
+z plikiem `e2stream-X.Y.Z.apk`.
 
 Lokalnie: Android Studio lub `./gradlew assembleRelease` (JDK 17, Android SDK 35).
 

@@ -91,6 +91,52 @@ class Prefs(ctx: Context) {
         get() = s("ftpDir", "/tmp")
         set(v) = putS("ftpDir", v)
 
+    /** Katalog zapisu logów i zrzutów TS (pusty = domyślny katalog aplikacji). */
+    var storageDir: String
+        get() = s("storageDir")
+        set(v) = putS("storageDir", v)
+
+    /** Zapis ostatnich sekund strumienia TS przy zawieszeniu. */
+    var saveTs: Boolean
+        get() = sp.getBoolean("saveTs", true)
+        set(v) = putB("saveTs", v)
+
+    /** Rozmiar bufora zrzutu TS w MB. */
+    var tsRingMb: Int
+        get() = sp.getInt("tsRingMb", 16)
+        set(v) = putI("tsRingMb", v)
+
+    /** Wysyłanie zrzutów TS także przez FTP na dekoder. */
+    var tsFtp: Boolean
+        get() = sp.getBoolean("tsFtp", false)
+        set(v) = putB("tsFtp", v)
+
+    /** Ukryte bukiety (referencje). */
+    var hiddenBouquets: Set<String>
+        get() = HashSet(sp.getStringSet("hiddenBouquets", emptySet()) ?: emptySet())
+        set(v) = sp.edit().putStringSet("hiddenBouquets", HashSet(v)).apply()
+
+    /** PIN do ustawień (pusty = bez blokady). */
+    var pin: String
+        get() = s("pin")
+        set(v) = putS("pin", v)
+
+    var invertUpDown: Boolean
+        get() = sp.getBoolean("invertUpDown", false)
+        set(v) = putB("invertUpDown", v)
+
+    var bannerSec: Int
+        get() = sp.getInt("bannerSec", 4)
+        set(v) = putI("bannerSec", v)
+
+    var resumeLast: Boolean
+        get() = sp.getBoolean("resumeLast", true)
+        set(v) = putB("resumeLast", v)
+
+    var checkUpdates: Boolean
+        get() = sp.getBoolean("checkUpdates", true)
+        set(v) = putB("checkUpdates", v)
+
     var lastBouquet: String
         get() = s("lastBouquet")
         set(v) = putS("lastBouquet", v)

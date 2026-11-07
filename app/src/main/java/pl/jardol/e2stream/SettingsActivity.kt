@@ -15,7 +15,9 @@ class SettingsActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
         val p = Prefs(this)
-        AppLog.init(this)
+        AppLog.init(this, Storage.dir(this, p))
+        var storageDir = p.storageDir
+        var hidden = p.hiddenBouquets
 
         val host = findViewById<EditText>(R.id.host)
         val httpPort = findViewById<EditText>(R.id.httpPort)
@@ -34,6 +36,17 @@ class SettingsActivity : Activity() {
         val ftpPass = findViewById<EditText>(R.id.ftpPass)
         val ftpDir = findViewById<EditText>(R.id.ftpDir)
         val discover = findViewById<Button>(R.id.discover)
+        val resumeLast = findViewById<CheckBox>(R.id.resumeLast)
+        val invertUpDown = findViewById<CheckBox>(R.id.invertUpDown)
+        val bannerSec = findViewById<EditText>(R.id.bannerSec)
+        val checkUpdates = findViewById<CheckBox>(R.id.checkUpdates)
+        val pin = findViewById<EditText>(R.id.pin)
+        val saveTs = findViewById<CheckBox>(R.id.saveTs)
+        val tsRingMb = findViewById<EditText>(R.id.tsRingMb)
+        val tsFtp = findViewById<CheckBox>(R.id.tsFtp)
+        val storageInfo = findViewById<TextView>(R.id.storageInfo)
+        val bouquetsInfo = findViewById<TextView>(R.id.bouquetsInfo)
+        val bouquetsBtn = findViewById<Button>(R.id.bouquets)
 
         host.setText(p.host)
         httpPort.setText(p.httpPort.toString())
@@ -57,6 +70,58 @@ class SettingsActivity : Activity() {
         ftpUser.setText(p.ftpUser)
         ftpPass.setText(p.ftpPass)
         ftpDir.setText(p.ftpDir)
+        resumeLast.isChecked = p.resumeLast
+        invertUpDown.isChecked = p.invertUpDown
+        bannerSec.setText(p.bannerSec.toString())
+        checkUpdates.isChecked = p.checkUpdates
+        pin.setText(p.pin)
+        saveTs.isChecked = p.saveTs
+        tsRingMb.setText(p.tsRingMb.toString())
+        tsFtp.isChecked = p.tsFtp
+        storageInfo.text = "Zapis: " + (storageDir.ifBlank { Storage.dir(this, p).absolutePath })
+        bouquetsInfo.text = if (hidden.isEmpty()) "Widoczne: wszystkie" else "Ukryte bukiety: ${hidden.size}"
+
+        findViewById<Button>(R.id.storage).setOnClickListener {
+            val opts = Storage.options(this)
+            AlertDialog.Builder(this)
+                .setTitle("Miejsce zapisu logów i zrzutów TS")
+                .setItems(opts.map { it.label }.toTypedArray()) { _, which ->
+                    storageDir = opts[which].path
+                    storageInfo.text = "Zapis: $storageDir"
+                }
+                .show()
+        }
+
+        bouquetsBtn.setOnClickListener {
+            // zapisz dane połączenia, żeby lista bukietów pobrała się z wpisanego dekodera
+            p.host = host.text.toString().trim()
+            p.httpPort = httpPort.text.toString().toIntOrNull() ?: 80
+            p.user = user.text.toString().trim()
+            p.pass = pass.text.toString()
+            bouquetsBtn.isEnabled = false
+            Thread {
+                val list = try { OpenWebif(p).bouquets() } catch (e: Exception) { null }
+                runOnUiThread {
+                    bouquetsBtn.isEnabled = true
+                    if (isFinishing) return@runOnUiThread
+                    if (list.isNullOrEmpty()) {
+                        bouquetsInfo.text = "Nie udało się pobrać bukietów z dekodera"
+                        return@runOnUiThread
+                    }
+                    val names = list.map { it.name }.toTypedArray()
+                    val checked = BooleanArray(list.size) { list[it].ref !in hidden }
+                    AlertDialog.Builder(this)
+                        .setTitle("Widoczne bukiety")
+                        .setMultiChoiceItems(names, checked) { _, which, isChecked -> checked[which] = isChecked }
+                        .setPositiveButton("OK") { _, _ ->
+                            hidden = list.indices.filter { !checked[it] }.map { list[it].ref }.toSet()
+                            bouquetsInfo.text = if (hidden.isEmpty()) "Widoczne: wszystkie" else "Ukryte bukiety: ${hidden.size} z ${list.size}"
+                        }
+                        .setNegativeButton("Anuluj", null)
+                        .show()
+                }
+            }.start()
+        }
 
         val ver = try {
             packageManager.getPackageInfo(packageName, 0).versionName ?: ""
@@ -118,6 +183,16 @@ class SettingsActivity : Activity() {
             p.ftpUser = ftpUser.text.toString().trim().ifEmpty { "root" }
             p.ftpPass = ftpPass.text.toString()
             p.ftpDir = ftpDir.text.toString().trim().ifEmpty { "/tmp" }
+            p.resumeLast = resumeLast.isChecked
+            p.invertUpDown = invertUpDown.isChecked
+            p.bannerSec = (bannerSec.text.toString().toIntOrNull() ?: 4).coerceIn(1, 30)
+            p.checkUpdates = checkUpdates.isChecked
+            p.pin = pin.text.toString().trim()
+            p.saveTs = saveTs.isChecked
+            p.tsRingMb = (tsRingMb.text.toString().toIntOrNull() ?: 16).coerceIn(2, 64)
+            p.tsFtp = tsFtp.isChecked
+            p.storageDir = storageDir
+            p.hiddenBouquets = hidden
             p.bump()
             AppLog.i("zapisano ustawienia: host=${p.host} tunel=${p.tunneling} watchdog=${p.watchdog}/${p.stallSec}s bufor=${p.bufferMs} afr=${p.afrMode} audio=${p.audioLang} ac3=${p.preferAc3}")
             finish()

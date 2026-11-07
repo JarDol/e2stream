@@ -11,8 +11,8 @@ android {
         applicationId = "pl.jardol.e2stream"
         minSdk = 21
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     // Stały klucz w repo => każda kolejna wersja instaluje się jako aktualizacja.
@@ -53,4 +53,5 @@ dependencies {
     val media3 = "1.5.1"
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-ui:$media3")
+    implementation("androidx.core:core:1.13.1")
 }
