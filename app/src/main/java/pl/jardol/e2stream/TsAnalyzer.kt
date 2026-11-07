@@ -10,6 +10,21 @@ import android.os.SystemClock
  */
 class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
 
+    /** Czyść strumień: pakiety TEI / kodowane / PMT innych programów zamieniane na puste (PID 0x1FFF). */
+    @Volatile var clean = true
+
+    private var expectedSid = -1
+    private var startAt = SystemClock.elapsedRealtime()
+    private var startSkipped = 0
+    private var startReported = false
+    private val otherPmtPids = HashSet<Int>()
+    @Volatile var cleaned = 0L
+        private set
+    @Volatile var burstAvgMs = 0L
+        private set
+    private var ivBurstN = 0
+    private var ivBurstSum = 0L
+
     // --- liczniki sesji (od startu strumienia)
     @Volatile var bytes = 0L
         private set
@@ -65,17 +80,37 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
     private var ringPos = 0
     private var ringFull = false
 
+    /** Nowa sesja strumienia; [sid] = identyfikator serwisu z referencji (lub -1). */
     @Synchronized
-    fun reset() {
+    fun reset(sid: Int = -1) {
+        expectedSid = sid
+        startAt = SystemClock.elapsedRealtime()
+        startSkipped = 0
+        startReported = false
+        otherPmtPids.clear()
+        cleaned = 0
+        burstAvgMs = 0
+        ivBurstN = 0
+        ivBurstSum = 0
         bytes = 0; packets = 0; ccErrors = 0; teiErrors = 0; scrambled = 0
         syncLoss = 0; pcrJumps = 0; pmtChanges = 0; maxGapMs = 0; bitrateKbps = 0
         lastErrorAt = 0
         pidCc.fill(-1); pidCcErr.fill(0); lastPcrMs.fill(-1)
-        pidType.clear(); pmtPid = -1; pmtVersion = -1
+        pidType.clear(); pmtPid = -1; pmtVersion = -1; pmtCandidates.clear()
         carryLen = 0
         ivStart = SystemClock.elapsedRealtime()
         ivBytes = 0; ivCc = 0; ivTei = 0; ivScr = 0; ivSync = 0; ivPcr = 0; ivGap = 0
         ringPos = 0; ringFull = false
+    }
+
+    /** Pierwsze 2 s po przełączeniu: dane sprzed zmiany kanału / dekodowanie startowe — nie liczymy jako błędów. */
+    private fun inStartGrace(): Boolean {
+        val g = SystemClock.elapsedRealtime() - startAt < 2000
+        if (!g && !startReported && startSkipped > 0) {
+            startReported = true
+            onEvent("TS: start — pominięto $startSkipped zdarzeń z pierwszych 2 s")
+        }
+        return g
     }
 
     private fun event(msg: String) {
@@ -95,7 +130,8 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
     fun readTime(ms: Long) {
         if (ms > ivGap) ivGap = ms
         if (ms > maxGapMs) maxGapMs = ms
-        if (ms >= 500) event("dane z dekodera nie przychodziły przez $ms ms")
+        if (ms >= 300) { ivBurstN++; ivBurstSum += ms }
+        if (ms >= 2500 && !inStartGrace()) event("dane z dekodera nie przychodziły przez $ms ms")
     }
 
     @Synchronized
@@ -123,7 +159,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             i += n
             if (carryLen < 188) return
             carryLen = 0
-            if (carry[0] == SYNC) packet(carry, 0) else lostSync()
+            if (carry[0] == SYNC) packet(carry, 0, false) else lostSync()
         }
         while (end - i >= 188) {
             if (buf[i] != SYNC) {
@@ -133,7 +169,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
                 i = j
                 continue
             }
-            packet(buf, i)
+            packet(buf, i, true)
             i += 188
         }
         if (i < end && buf[i] == SYNC) {
@@ -143,29 +179,49 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
     }
 
     private fun lostSync() {
+        if (inStartGrace()) { startSkipped++; return }
         syncLoss++; ivSync++
         event("utrata synchronizacji TS")
     }
 
+    private fun nullPacket(p: ByteArray, o: Int) {
+        if (!clean) return
+        p[o + 1] = 0x1f
+        p[o + 2] = 0xff.toByte()
+        cleaned++
+    }
+
     private fun u(b: ByteArray, i: Int) = b[i].toInt() and 0xff
 
-    private fun packet(p: ByteArray, o: Int) {
+    private fun packet(p: ByteArray, o: Int, mutable: Boolean) {
         packets++
+        val grace = inStartGrace()
         val b1 = u(p, o + 1)
         val pid = ((b1 and 0x1f) shl 8) or u(p, o + 2)
         if ((b1 and 0x80) != 0) {
-            teiErrors++; ivTei++
-            event("TEI (pakiet uszkodzony na wejściu tunera) pid ${pidName(pid)}")
+            if (grace) startSkipped++ else {
+                teiErrors++; ivTei++
+                event("TEI (pakiet uszkodzony na wejściu tunera) pid ${pidName(pid)}")
+            }
+            if (mutable) nullPacket(p, o)
             return
         }
         if (pid == 0x1fff) return
+        if (pid in otherPmtPids) {
+            if (mutable) nullPacket(p, o) // PMT innego programu z PAT — ExoPlayer mógłby się na nim „zaczepić”
+            return
+        }
         val b3 = u(p, o + 3)
         val scr = b3 shr 6
         val afc = (b3 shr 4) and 3
         val cc = b3 and 0x0f
         if (scr != 0) {
-            scrambled++; ivScr++
-            if (scrambled == 1L || scrambled % 500 == 0L) event("pakiety kodowane (niezdekodowane) pid ${pidName(pid)}, razem $scrambled")
+            if (grace) startSkipped++ else {
+                scrambled++; ivScr++
+                if (scrambled == 1L || scrambled % 500 == 0L) event("pakiety kodowane (niezdekodowane) pid ${pidName(pid)}, razem $scrambled")
+            }
+            if (mutable) nullPacket(p, o)
+            return
         }
 
         var disc = false
@@ -183,7 +239,9 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             val last = pidCc[pid]
             if (last >= 0 && !disc) {
                 val exp = (last + 1) and 0x0f
-                if (cc != exp && cc != last) {
+                if (cc != exp && cc != last && grace) {
+                    startSkipped++
+                } else if (cc != exp && cc != last) {
                     ccErrors++; ivCc++; pidCcErr[pid]++
                     val lost = (cc - exp + 16) and 0x0f
                     event("błąd CC pid ${pidName(pid)}: oczekiwano $exp, jest $cc (~$lost pakietów brak)")
@@ -192,7 +250,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             pidCc[pid] = cc
             if ((b1 and 0x40) != 0 && payload < o + 188) {
                 if (pid == 0) parsePat(p, payload, o + 188)
-                else if (pid == pmtPid) parsePmt(p, payload, o + 188)
+                else if (pid == pmtPid || (pmtPid < 0 && pmtCandidates.contains(pid))) parsePmt(p, payload, o + 188, pid)
             }
         }
     }
@@ -212,20 +270,43 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         }
     }
 
+    private val pmtCandidates = HashSet<Int>()
+
+    /**
+     * PAT ze strumienia Enigma2 to oryginalny PAT transpondera — zawiera wszystkie programy.
+     * Nasz PMT wybieramy po SID z referencji serwisu; PMT pozostałych programów oznaczamy do usunięcia.
+     */
     private fun parsePat(p: ByteArray, s: Int, end: Int) {
         val t = s + 1 + u(p, s)
         if (t + 8 > end || u(p, t) != 0x00) return
         val sl = ((u(p, t + 1) and 0x0f) shl 8) or u(p, t + 2)
         var k = t + 8
         val last = minOf(t + 3 + sl - 4, end)
+        var mine = -1
+        val all = ArrayList<Pair<Int, Int>>()
         while (k + 4 <= last) {
             val prog = (u(p, k) shl 8) or u(p, k + 1)
             val ppid = ((u(p, k + 2) and 0x1f) shl 8) or u(p, k + 3)
             if (prog != 0) {
-                if (ppid != pmtPid) { pmtPid = ppid; pmtVersion = -1 }
-                return
+                all.add(prog to ppid)
+                if (prog == expectedSid) mine = ppid
             }
             k += 4
+        }
+        if (mine >= 0) {
+            if (mine != pmtPid) {
+                pmtPid = mine
+                pmtVersion = -1
+                otherPmtPids.clear()
+                all.filter { it.second != mine }.forEach { otherPmtPids.add(it.second) }
+                otherPmtPids.remove(mine)
+                onEvent("TS: PAT ${all.size} programów, nasz SID $expectedSid → PMT pid $mine" +
+                    if (otherPmtPids.isNotEmpty()) ", usuwam PMT innych: ${otherPmtPids.size}" else "")
+            }
+        } else if (pmtPid < 0) {
+            // SID nieznany lub brak w PAT — weź pierwszy PMT, który faktycznie przyjdzie
+            pmtCandidates.clear()
+            all.forEach { pmtCandidates.add(it.second) }
         }
     }
 
@@ -243,12 +324,20 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         else -> "0x%02x".format(t)
     }
 
-    private fun parsePmt(p: ByteArray, s: Int, end: Int) {
+    private fun parsePmt(p: ByteArray, s: Int, end: Int, pid: Int) {
         val t = s + 1 + u(p, s)
         if (t + 12 > end || u(p, t) != 0x02) return
         val sl = ((u(p, t + 1) and 0x0f) shl 8) or u(p, t + 2)
         val sectionEnd = t + 3 + sl - 4
         if (sectionEnd > end) return // sekcja dłuższa niż jeden pakiet — pomijamy
+        val prog = (u(p, t + 3) shl 8) or u(p, t + 4)
+        if (expectedSid >= 0 && prog != expectedSid) return
+        if (pmtPid < 0) {
+            // pierwszy PMT z kandydatów — to nasz; PMT pozostałych programów usuwamy
+            pmtPid = pid
+            otherPmtPids.clear()
+            pmtCandidates.filter { it != pid }.forEach { otherPmtPids.add(it) }
+        }
         val version = (u(p, t + 5) shr 1) and 0x1f
         if (version == pmtVersion) return
         val pil = ((u(p, t + 10) and 0x0f) shl 8) or u(p, t + 11)
@@ -268,7 +357,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             pmtChanges++
             event("zmiana PMT wersja $pmtVersion → $version: ${list.joinToString(" ")}")
         } else {
-            onEvent("TS: PMT pid $pmtPid wersja $version: ${list.joinToString(" ")}")
+            onEvent("TS: PMT program $prog wersja $version: ${list.joinToString(" ")}")
         }
         pmtVersion = version
     }
@@ -280,8 +369,11 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         val dt = (now - ivStart).coerceAtLeast(1)
         bitrateKbps = ivBytes * 8 / dt
         val errors = ivCc + ivTei + ivSync + ivPcr + ivScr
-        val text = "TS ${dt / 1000}s: %.2f Mb/s, CC +$ivCc, TEI +$ivTei, kodowane +$ivScr, sync +$ivSync, PCR +$ivPcr, maks. odczyt $ivGap ms"
+        if (ivBurstN > 0) burstAvgMs = ivBurstSum / ivBurstN
+        val text = "TS ${dt / 1000}s: %.2f Mb/s, CC +$ivCc, TEI +$ivTei, kodowane +$ivScr, sync +$ivSync, PCR +$ivPcr, maks. odczyt $ivGap ms, paczki danych: $ivBurstN × ~$burstAvgMs ms przerwy"
             .format(bitrateKbps / 1000.0)
+        ivBurstN = 0
+        ivBurstSum = 0
         ivStart = now
         ivBytes = 0; ivCc = 0; ivTei = 0; ivScr = 0; ivSync = 0; ivPcr = 0; ivGap = 0
         if (errors > 0 || now - lastHeartbeat > 60_000) {
@@ -296,7 +388,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         val worst = (0 until 8192).filter { pidCcErr[it] > 0 }
             .sortedByDescending { pidCcErr[it] }.take(5)
             .joinToString(" ") { "${pidName(it)}=${pidCcErr[it]}" }
-        return "TS razem: ${bytes / 1_000_000} MB, CC $ccErrors, TEI $teiErrors, kodowane $scrambled, sync $syncLoss, PCR $pcrJumps, PMT $pmtChanges, maks. odczyt $maxGapMs ms" +
+        return "TS razem: ${bytes / 1_000_000} MB, PMT pid $pmtPid, wyczyszczone $cleaned, CC $ccErrors, TEI $teiErrors, kodowane $scrambled, sync $syncLoss, PCR $pcrJumps, PMT $pmtChanges, maks. odczyt $maxGapMs ms" +
             (if (worst.isNotEmpty()) " | CC wg PID: $worst" else "")
     }
 

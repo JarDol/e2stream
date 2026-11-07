@@ -111,6 +111,11 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("tsFtp", false)
         set(v) = putB("tsFtp", v)
 
+    /** Czyszczenie strumienia przed odtwarzaczem (pakiety uszkodzone / kodowane / obce PMT). */
+    var cleanTs: Boolean
+        get() = sp.getBoolean("cleanTs", true)
+        set(v) = putB("cleanTs", v)
+
     /** Ukryte bukiety (referencje). */
     var hiddenBouquets: Set<String>
         get() = HashSet(sp.getStringSet("hiddenBouquets", emptySet()) ?: emptySet())

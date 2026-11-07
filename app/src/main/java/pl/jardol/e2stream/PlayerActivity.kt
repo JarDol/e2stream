@@ -184,7 +184,9 @@ class PlayerActivity : Activity() {
         val start = prefs.bufferMs.coerceIn(250, 10_000)
         val minBuf = maxOf(start * 2, 2000)
         val load = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(minBuf, maxOf(minBuf, 15_000), start, start)
+            // Enigma2 wysyła dane paczkami (~0,5 MB): na kanałach SD przerwy między paczkami
+            // to nawet 3–4 s, więc po niedoborze bufora czekamy na zapas, który je pokryje.
+            .setBufferDurationsMs(minBuf, maxOf(minBuf, 15_000), start, maxOf(start, 4000))
             .build()
 
         val p = ExoPlayer.Builder(this, renderers)
@@ -302,6 +304,7 @@ class PlayerActivity : Activity() {
             analyzer = TsAnalyzer(ring) { msg -> AppLog.i(msg) }
             analyzerRing = ring
         }
+        analyzer?.clean = prefs.cleanTs
     }
 
     private val tsTick = object : Runnable {
@@ -349,7 +352,9 @@ class PlayerActivity : Activity() {
         streamStartAt = SystemClock.elapsedRealtime()
         readyLogged = false
         lastStartMs = -1
-        analyzer?.reset()
+        // SID serwisu = 4. pole referencji (hex), np. 1:0:19:3DD2:640:13E:820000:0:0:0:
+        val sid = url.substringAfterLast('/').split(":").getOrNull(3)?.toIntOrNull(16) ?: -1
+        analyzer?.reset(sid)
         p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
             .build()
@@ -614,6 +619,7 @@ class PlayerActivity : Activity() {
             appendLine("Bufor: ${p.totalBufferedDuration} ms   start obrazu: " + (if (lastStartMs >= 0) "$lastStartMs ms" else "-"))
             analyzer?.let { a ->
                 appendLine("TS: %.2f Mb/s  odczyt maks. ${a.maxGapMs} ms".format(a.bitrateKbps / 1000.0))
+                appendLine("TS paczki: przerwy ~${a.burstAvgMs} ms   wyczyszczone pakiety: ${a.cleaned}")
                 appendLine("TS błędy: CC ${a.ccErrors}  TEI ${a.teiErrors}  kod. ${a.scrambled}  sync ${a.syncLoss}  PCR ${a.pcrJumps}  PMT ${a.pmtChanges}")
             }
             appendLine("Ekran: ${displayInfo()}")

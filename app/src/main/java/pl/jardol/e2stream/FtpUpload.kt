@@ -53,19 +53,38 @@ object FtpUpload {
             if (resp.startsWith("331")) resp = cmd("PASS $pass")
             expect(resp, "230")
             expect(cmd("TYPE I"), "200")
-            if (remoteDir.isNotBlank() && !cmd("CWD $remoteDir").startsWith("250")) {
-                // katalog nie istnieje — tworzymy go po kolei, segment po segmencie
-                var path = ""
-                for (seg in remoteDir.trim('/').split('/').filter { it.isNotEmpty() }) {
-                    path += "/$seg"
-                    if (!cmd("CWD $path").startsWith("250")) {
-                        val m = cmd("MKD $path")
-                        if (!m.startsWith("257") && !cmd("CWD $path").startsWith("250")) throw IOException("FTP: nie można utworzyć $path: $m")
+            val pwd = cmd("PWD")
+            val startDir = Regex("\"(.*)\"").find(pwd)?.groupValues?.get(1)
+            fun ok(c: String) = cmd(c).startsWith("250")
+            if (remoteDir.isNotBlank() && !ok("CWD $remoteDir")) {
+                val segs = remoteDir.trim('/').split('/').filter { it.isNotEmpty() }
+                // 1) ścieżka bezwzględna, tworzona segment po segmencie
+                fun absolute(): Boolean {
+                    var path = ""
+                    for (seg in segs) {
+                        path += "/$seg"
+                        if (!ok("CWD $path")) {
+                            cmd("MKD $path")
+                            if (!ok("CWD $path")) return false
+                        }
                     }
+                    return true
                 }
-                expect(cmd("CWD $remoteDir"), "250")
+                // 2) serwer z „chroot” — ta sama ścieżka względem katalogu startowego
+                fun relative(): Boolean {
+                    if (startDir != null) cmd("CWD $startDir")
+                    for (seg in segs) {
+                        if (!ok("CWD $seg")) {
+                            cmd("MKD $seg")
+                            if (!ok("CWD $seg")) return false
+                        }
+                    }
+                    return true
+                }
+                if (!absolute() && !relative()) {
+                    throw IOException("FTP: nie można wejść do $remoteDir (katalog startowy serwera: ${startDir ?: pwd})")
+                }
             }
-
             val pasv = cmd("PASV")
             expect(pasv, "227")
             val nums = Regex("(\\d+),(\\d+),(\\d+),(\\d+),(\\d+),(\\d+)").find(pasv)
