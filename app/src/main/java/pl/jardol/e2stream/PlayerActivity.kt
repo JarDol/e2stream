@@ -871,6 +871,7 @@ class PlayerActivity : Activity() {
             if (stats.visibility == View.VISIBLE) "Ukryj statystyki" else "Pokaż statystyki",
             "Odświeżanie ekranu: ${afrName(prefs.afrMode)}",
             "Wyślij log na dekoder",
+            "Wyślij zrzuty TS na dekoder",
             "Aktualizacja",
             "Ustawienia",
         )
@@ -887,8 +888,9 @@ class PlayerActivity : Activity() {
                         showMessage("Odświeżanie ekranu: ${afrName(prefs.afrMode)}")
                     }
                     3 -> uploadLog(true)
-                    4 -> checkUpdate(true)
-                    5 -> openSettings()
+                    4 -> uploadDumps()
+                    5 -> checkUpdate(true)
+                    6 -> openSettings()
                 }
             }
             .show()
@@ -996,6 +998,39 @@ class PlayerActivity : Activity() {
             } catch (e: Exception) {
                 AppLog.markDirty()
                 if (manual) runOnUiThread { showMessage("Nie udało się wysłać logu: ${e.message}", 8000) }
+            }
+        }.start()
+    }
+
+    /** Wysyła wszystkie zrzuty stall-*.ts (z wybranego miejsca i katalogu domyślnego) przez FTP. */
+    private fun uploadDumps() {
+        val dirs = listOfNotNull(Storage.dir(this, prefs), getExternalFilesDir(null), filesDir).distinct()
+        val files = dirs.flatMap { d -> d.listFiles { f -> f.name.startsWith("stall-") && f.name.endsWith(".ts") }?.toList() ?: emptyList() }
+            .distinctBy { it.name }
+            .sortedBy { it.name }
+        if (files.isEmpty()) { showMessage("Brak zrzutów TS"); return }
+        val host = prefs.host
+        val user = prefs.ftpUser
+        val pass = prefs.ftpPass
+        val dir = prefs.ftpDir
+        showMessage("Wysyłam ${files.size} zrzut(ów) TS…", 5000)
+        Thread {
+            var ok = 0
+            var err = ""
+            for (f in files) {
+                try {
+                    FtpUpload.upload(host, 21, user, pass, dir, f.name, f.readBytes())
+                    ok++
+                    AppLog.i("zrzut TS wysłany na dekoder: $dir/${f.name}")
+                    runOnUiThread { showMessage("Wysłano $ok/${files.size}: ${f.name}", 4000) }
+                } catch (e: Exception) {
+                    err = e.message ?: e.toString()
+                    AppLog.i("wysyłanie ${f.name} nieudane: $e")
+                }
+            }
+            runOnUiThread {
+                if (err.isEmpty()) showMessage("Wysłano $ok zrzut(ów) do $dir", 8000)
+                else showMessage("Wysłano $ok/${files.size}. Błąd: $err", 12_000)
             }
         }.start()
     }
