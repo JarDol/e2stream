@@ -6,7 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
-import org.json.JSONObject
+import org.json.JSONArray
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -15,10 +15,14 @@ import java.net.URL
 /** Aktualizacja z GitHub Releases (JarDol/e2stream). Metody sieciowe poza wątkiem UI. */
 object Updater {
 
-    private const val API = "https://api.github.com/repos/JarDol/e2stream/releases/latest"
+    private const val API = "https://api.github.com/repos/JarDol/e2stream/releases?per_page=30"
 
     data class Info(val version: String, val url: String, val name: String)
 
+    /**
+     * Najwyższa wersja, której Release ma plik e2stream-<wersja>.apk.
+     * Puste / zapasowe Release'y (bez pasującego pliku) są pomijane.
+     */
     fun latest(): Info? {
         val c = URL(API).openConnection() as HttpURLConnection
         c.connectTimeout = 6000
@@ -27,15 +31,23 @@ object Updater {
         c.setRequestProperty("User-Agent", "E2Stream")
         try {
             if (c.responseCode != 200) throw IOException("GitHub HTTP ${c.responseCode}")
-            val js = JSONObject(c.inputStream.bufferedReader().use { it.readText() })
-            val tag = js.optString("tag_name").removePrefix("v")
-            val assets = js.optJSONArray("assets") ?: return null
-            for (i in 0 until assets.length()) {
-                val a = assets.optJSONObject(i) ?: continue
-                val name = a.optString("name")
-                if (name.endsWith(".apk")) return Info(tag, a.optString("browser_download_url"), name)
+            val arr = JSONArray(c.inputStream.bufferedReader().use { it.readText() })
+            var best: Info? = null
+            for (r in 0 until arr.length()) {
+                val js = arr.optJSONObject(r) ?: continue
+                if (js.optBoolean("draft") || js.optBoolean("prerelease")) continue
+                val tag = js.optString("tag_name").removePrefix("v")
+                val assets = js.optJSONArray("assets") ?: continue
+                for (i in 0 until assets.length()) {
+                    val a = assets.optJSONObject(i) ?: continue
+                    val name = a.optString("name")
+                    if (name == "e2stream-$tag.apk") {
+                        val cand = Info(tag, a.optString("browser_download_url"), name)
+                        if (best == null || newer(tag, best.version)) best = cand
+                    }
+                }
             }
-            return null
+            return best
         } finally {
             c.disconnect()
         }
