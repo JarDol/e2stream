@@ -53,7 +53,7 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:paddingTop="8dp"
-            android:text="◀ ▶ bukiet   •   przytrzymaj OK – menu i ustawienia"
+            android:text="◀ ▶ bukiet   •   OK – oglądaj   •   przytrzymaj OK – menu"
             android:textColor="#FF90A4AE"
             android:textSize="14sp" />
     </LinearLayout>
@@ -67,9 +67,24 @@
         android:layout_marginEnd="48dp"
         android:layout_marginBottom="32dp"
         android:background="@drawable/overlay_bg"
-        android:orientation="vertical"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         android:padding="16dp"
         android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/bannerIcon"
+            android:layout_width="110dp"
+            android:layout_height="66dp"
+            android:layout_marginEnd="16dp"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
 
         <TextView
             android:id="@+id/bannerName"
@@ -85,6 +100,7 @@
             android:layout_height="wrap_content"
             android:textColor="#FFB0BEC5"
             android:textSize="18sp" />
+        </LinearLayout>
     </LinearLayout>
 
     <TextView

@@ -16,6 +16,7 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
   zmiany PMT, przerwy w napływie danych — w statystykach i w logu.
 * Przy zawieszeniu zapis ostatnich sekund strumienia (`stall-*.ts`, bufor 16 MB) do analizy np. TSDuck.
 * Miejsce zapisu: pamięć urządzenia lub pendrive/karta (katalog `Android/data/pl.jardol.e2stream/files/`).
+* EPG pobierane codziennie wg harmonogramu (i na żądanie) z zapisem na urządzeniu; ikony kanałów z dekodera (OpenWebif /picon/ lub FTP).
 * EPG kanału, multi-EPG bukietu i wyszukiwanie w EPG; z audycji: przełącz na kanał lub nagraj na dekoderze.
 * Wybór widocznych bukietów, PIN do ustawień, aktualizacja aplikacji z GitHub (menu → Aktualizacja).
 * Log diagnostyczny: lokalnie w `Android/data/pl.jardol.e2stream/files/e2stream.log`
@@ -23,21 +24,19 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 
 ## Pilot
 
-| Klawisz | Działanie |
+| Klawisz | Działanie (domyślnie — można zmienić: Ustawienia → Mapowanie klawiszy) |
 |---|---|
-| OK | lista kanałów |
-| ◀ / ▶ na liście | poprzedni / następny bukiet |
-| ▲ / CH+ | następny kanał |
-| ▼ / CH− | poprzedni kanał |
-| ◀ | lista kanałów |
-| ▶ | statystyki (rozdzielczość, kodek, klatki, ekran, liczba wznowień i ostatni powód) |
-| INFO | EPG kanału (na liście kanałów: EPG zaznaczonego kanału) |
-| GUIDE / EPG | multi-EPG bukietu (◀ ▶ zmiana czasu o 30 min) |
+| OK | lista kanałów (◀ ▶ zmiana bukietu) |
+| przytrzymanie OK | menu: EPG wydarzenia, EPG kanału, Multi EPG, Szukaj w EPG, Ścieżka dźwięku, Ustawienia |
+| ▲ / ▼, CH+ / CH− | następny / poprzedni kanał |
+| ◀ | EPG kanału |
+| ▶ | Multi EPG bukietu (w nim ◀ ▶ zmiana czasu o 30 min) |
+| INFO | EPG wydarzenia — opis bieżącej audycji |
+| GUIDE / EPG | Multi EPG |
 | SEARCH | szukaj w EPG |
+| MENU | menu |
 | cyfry | wybór numeru kanału (OK zatwierdza od razu) |
-| przytrzymanie OK / MENU | menu: EPG kanału, multi-EPG, szukaj w EPG, ścieżka dźwięku, ustawienia (PIN) |
-| AUDIO | wybór ścieżki dźwięku |
-| LAST / ⏮ | poprzedni kanał (przełączanie dwóch ostatnich) |
+| LAST / ⏮ | poprzedni kanał |
 | WSTECZ ×2 | wyjście |
 
 ## Ustawienia

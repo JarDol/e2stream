@@ -43,6 +43,59 @@ class SettingsActivity : Activity() {
 
     private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_LONG).show()
 
+    // ------------------------------------------------------------ mapowanie klawiszy
+
+    private fun showKeyMap() {
+        val entries = KeyMap.load(prefs).entries.toList()
+        val labels = (listOf("+ Dodaj / zmień klawisz (naciśnij go na pilocie)") +
+            entries.map { "${KeyMap.keyName(it.key)}   →   ${it.value.label}" } +
+            listOf("Przywróć domyślne")).toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Mapowanie klawiszy (podczas oglądania)")
+            .setItems(labels) { _, w ->
+                when (w) {
+                    0 -> captureKey()
+                    labels.size - 1 -> { prefs.keyMap = ""; toast("Przywrócono domyślne"); showKeyMap() }
+                    else -> chooseAct(entries[w - 1].key)
+                }
+            }
+            .setNegativeButton("Zamknij", null)
+            .show()
+    }
+
+    private fun captureKey() {
+        val dlg = AlertDialog.Builder(this)
+            .setTitle("Naciśnij klawisz na pilocie…")
+            .setMessage("WSTECZ — anuluj")
+            .create()
+        dlg.setOnKeyListener { d, code, e ->
+            if (e.action != android.view.KeyEvent.ACTION_UP) return@setOnKeyListener true
+            if (code == android.view.KeyEvent.KEYCODE_BACK) { d.dismiss(); return@setOnKeyListener true }
+            if (code in KeyMap.fixed) { toast("Klawisza ${KeyMap.keyName(code)} nie można przypisać"); return@setOnKeyListener true }
+            d.dismiss()
+            chooseAct(code)
+            true
+        }
+        dlg.show()
+    }
+
+    private fun chooseAct(code: Int) {
+        val m = KeyMap.load(prefs)
+        val acts = Act.values()
+        val cur = acts.indexOf(m[code] ?: Act.NONE)
+        AlertDialog.Builder(this)
+            .setTitle("Klawisz ${KeyMap.keyName(code)}")
+            .setSingleChoiceItems(acts.map { it.label }.toTypedArray(), cur) { d, w ->
+                m[code] = acts[w]
+                KeyMap.save(prefs, m)
+                AppLog.i("mapowanie: ${KeyMap.keyName(code)} → ${acts[w].name}")
+                d.dismiss()
+                showKeyMap()
+            }
+            .setNegativeButton("Anuluj") { _, _ -> showKeyMap() }
+            .show()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
@@ -81,6 +134,25 @@ class SettingsActivity : Activity() {
         val cleanTs = findViewById<CheckBox>(R.id.cleanTs)
         val dropRestart = findViewById<CheckBox>(R.id.dropRestart)
         val showStats = findViewById<CheckBox>(R.id.showStats)
+        val epgDaily = findViewById<CheckBox>(R.id.epgDaily)
+        val epgHour = findViewById<EditText>(R.id.epgHour)
+        val epgDays = findViewById<EditText>(R.id.epgDays)
+        val picons = findViewById<CheckBox>(R.id.picons)
+        val piconDir = findViewById<EditText>(R.id.piconDir)
+        val epgInfo = findViewById<TextView>(R.id.epgInfo)
+        findViewById<Button>(R.id.keymap).setOnClickListener { showKeyMap() }
+        val store = EpgStore(this)
+        fun epgStatus() {
+            val at = p.lastEpgFetch
+            epgInfo.text = (if (at > 0) "Ostatnie pobranie: " + java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale("pl")).format(java.util.Date(at)) else "EPG jeszcze nie pobierane") +
+                " • zapisanych kanałów: ${store.count()}"
+        }
+        epgStatus()
+        findViewById<Button>(R.id.epgNow).setOnClickListener {
+            EpgSync.run(applicationContext, p, store, { msg -> runOnUiThread { epgInfo.text = msg } }) { r ->
+                runOnUiThread { toast(r); epgStatus() }
+            }
+        }
         findViewById<Button>(R.id.sendLog).setOnClickListener { Tools.uploadLog(p, true) { toast(it) } }
         findViewById<Button>(R.id.sendDumps).setOnClickListener { Tools.uploadDumps(this, p) { toast(it) } }
         findViewById<Button>(R.id.checkUpdate).setOnClickListener { Tools.checkUpdate(this, true) { toast(it) } }
@@ -121,6 +193,11 @@ class SettingsActivity : Activity() {
         cleanTs.isChecked = p.cleanTs
         dropRestart.isChecked = p.dropRestart
         showStats.isChecked = p.showStats
+        epgDaily.isChecked = p.epgDaily
+        epgHour.setText(p.epgHour)
+        epgDays.setText(p.epgDays.toString())
+        picons.isChecked = p.picons
+        piconDir.setText(p.piconDir)
         storageInfo.text = "Zapis: " + (storageDir.ifBlank { Storage.dir(this, p).absolutePath })
         bouquetsInfo.text = if (hidden.isEmpty()) "Widoczne: wszystkie" else "Ukryte bukiety: ${hidden.size}"
 
@@ -236,6 +313,11 @@ class SettingsActivity : Activity() {
             p.cleanTs = cleanTs.isChecked
             p.dropRestart = dropRestart.isChecked
             p.showStats = showStats.isChecked
+            p.epgDaily = epgDaily.isChecked
+            p.epgHour = epgHour.text.toString().trim().let { if (Regex("^\\d{1,2}:\\d{2}$").matches(it)) it else "05:00" }
+            p.epgDays = (epgDays.text.toString().toIntOrNull() ?: 3).coerceIn(1, 14)
+            p.picons = picons.isChecked
+            p.piconDir = piconDir.text.toString().trim()
             p.storageDir = storageDir
             p.hiddenBouquets = hidden
             p.bump()
@@ -243,6 +325,6 @@ class SettingsActivity : Activity() {
             finish()
         }
         findViewById<Button>(R.id.cancel).setOnClickListener { finish() }
-        host.requestFocus()
+        findViewById<Button>(R.id.sendLog).requestFocus()
     }
 }

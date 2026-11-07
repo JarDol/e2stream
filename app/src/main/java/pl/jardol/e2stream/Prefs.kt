@@ -128,6 +128,40 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("dropRestart", true)
         set(v) = putB("dropRestart", v)
 
+    /** Mapowanie klawiszy: "kod=AKCJA,...". */
+    var keyMap: String
+        get() = s("keyMap")
+        set(v) = putS("keyMap", v)
+
+    /** Codzienne pobieranie EPG wg harmonogramu. */
+    var epgDaily: Boolean
+        get() = sp.getBoolean("epgDaily", true)
+        set(v) = putB("epgDaily", v)
+
+    /** Godzina codziennego pobierania EPG "HH:MM". */
+    var epgHour: String
+        get() = s("epgHour", "05:00")
+        set(v) = putS("epgHour", v)
+
+    /** Ile dni EPG do przodu zapisywać. */
+    var epgDays: Int
+        get() = sp.getInt("epgDays", 3)
+        set(v) = putI("epgDays", v)
+
+    var lastEpgFetch: Long
+        get() = sp.getLong("lastEpgFetch", 0)
+        set(v) = sp.edit().putLong("lastEpgFetch", v).apply()
+
+    /** Ikony kanałów z dekodera. */
+    var picons: Boolean
+        get() = sp.getBoolean("picons", true)
+        set(v) = putB("picons", v)
+
+    /** Katalog picon na dekoderze dla FTP (pusty = szukaj w typowych). */
+    var piconDir: String
+        get() = s("piconDir")
+        set(v) = putS("piconDir", v)
+
     /** Statystyki widoczne na ekranie. */
     var showStats: Boolean
         get() = sp.getBoolean("showStats", false)

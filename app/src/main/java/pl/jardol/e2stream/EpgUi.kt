@@ -21,6 +21,7 @@ class EpgUi(
     private val a: Activity,
     private val api: OpenWebif,
     private val io: ExecutorService,
+    private val store: EpgStore,
     private val host: Host,
 ) {
     interface Host {
@@ -45,8 +46,16 @@ class EpgUi(
         synchronized(cache) {
             cache[k]?.let { if (System.currentTimeMillis() - it.first < 10 * 60_000) return it.second }
         }
+        // zapisane EPG (z harmonogramu), jeśli świeże i sięga w przyszłość
+        store.read(ref)?.let { (at, ev) ->
+            if (System.currentTimeMillis() - at < 26 * 3600_000L && ev.any { it.end > now() }) {
+                synchronized(cache) { cache[k] = System.currentTimeMillis() to ev }
+                return ev
+            }
+        }
         val ev = api.epgService(ref)
         synchronized(cache) { cache[k] = System.currentTimeMillis() to ev }
+        store.write(ref, ev)
         return ev
     }
 
@@ -120,6 +129,26 @@ class EpgUi(
             AppLog.i("nagranie: ${ev.title} ${d(ev.begin)} ${t(ev.begin)} -> ${r.first} ${r.second}")
             a.runOnUiThread {
                 host.message(if (r.first) "Nagranie ustawione: ${ev.title}" else "Nie udało się ustawić nagrania: ${r.second}")
+            }
+        }
+    }
+
+    fun clearMemory() = synchronized(cache) { cache.clear() }
+
+    // ------------------------------------------------------------ EPG wydarzenia
+
+    /** Od razu opis bieżącej audycji kanału. */
+    fun showCurrentEvent(ch: Channel? = host.current()) {
+        if (ch == null) return
+        io.execute {
+            val ev = try { load(ch.ref) } catch (e: Exception) {
+                a.runOnUiThread { host.message("Błąd EPG: ${e.message}") }
+                return@execute
+            }
+            val n = now()
+            val cur = ev.firstOrNull { it.begin <= n && it.end > n } ?: ev.firstOrNull { it.begin > n }
+            a.runOnUiThread {
+                if (cur == null) host.message("Brak EPG dla ${ch.name}") else showEvent(cur, ch)
             }
         }
     }

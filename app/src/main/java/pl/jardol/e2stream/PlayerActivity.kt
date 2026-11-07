@@ -51,6 +51,9 @@ class PlayerActivity : Activity() {
     private lateinit var prefs: Prefs
     private lateinit var api: OpenWebif
     private lateinit var epg: EpgUi
+    private lateinit var epgStore: EpgStore
+    private var keyMap: MutableMap<Int, Act> = LinkedHashMap(KeyMap.defaults)
+    private lateinit var bannerIcon: android.widget.ImageView
 
     private lateinit var playerView: PlayerView
     private lateinit var panel: LinearLayout
@@ -110,7 +113,8 @@ class PlayerActivity : Activity() {
         api = OpenWebif(prefs)
         prefs.migrate()
         AppLog.init(this, Storage.dir(this, prefs))
-        epg = EpgUi(this, api, io, object : EpgUi.Host {
+        epgStore = EpgStore(this)
+        epg = EpgUi(this, api, io, epgStore, object : EpgUi.Host {
             override fun current(): Channel? = playList.getOrNull(playIndex)
             override fun bouquetChannels(): List<Channel> = playList
             override fun bouquetName(): String = bouquets.getOrNull(playBouquet)?.name ?: ""
@@ -126,6 +130,7 @@ class PlayerActivity : Activity() {
         banner = findViewById(R.id.banner)
         bannerName = findViewById(R.id.bannerName)
         bannerNow = findViewById(R.id.bannerNow)
+        bannerIcon = findViewById(R.id.bannerIcon)
         numEntry = findViewById(R.id.numEntry)
         stats = findViewById(R.id.stats)
         message = findViewById(R.id.message)
@@ -144,6 +149,9 @@ class PlayerActivity : Activity() {
         }
         AppLog.init(this, Storage.dir(this, prefs))
         stats.visibility = if (prefs.showStats) View.VISIBLE else View.GONE
+        keyMap = KeyMap.load(prefs)
+        ui.removeCallbacks(epgTick)
+        ui.postDelayed(epgTick, 30_000)
         ensureAnalyzer()
         buildPlayer()
         applyDisplayMode()
@@ -161,8 +169,22 @@ class PlayerActivity : Activity() {
         }
     }
 
+    /** Co minutę: czy przypada pobranie EPG z harmonogramu. */
+    private val epgTick = object : Runnable {
+        override fun run() {
+            if (EpgSync.due(prefs)) {
+                AppLog.i("EPG: pobieranie wg harmonogramu (${prefs.epgHour})")
+                EpgSync.run(applicationContext, prefs, epgStore, { }) { r ->
+                    runOnUiThread { epg.clearMemory(); adapter.notifyDataSetChanged(); AppLog.i(r) }
+                }
+            }
+            ui.postDelayed(this, 60_000)
+        }
+    }
+
     override fun onStop() {
         super.onStop()
+        ui.removeCallbacks(epgTick)
         releasePlayer()
         ui.removeCallbacks(logTick)
         if (AppLog.dirty) uploadLog(false)
@@ -601,6 +623,10 @@ class PlayerActivity : Activity() {
             val v = convertView ?: layoutInflater.inflate(R.layout.item_channel, parent, false)
             val c = panelList[position]
             v.findViewById<TextView>(R.id.num).text = c.num.toString()
+            val iv = v.findViewById<android.widget.ImageView>(R.id.icon)
+            val bmp = if (prefs.picons) Picons.bitmap(this@PlayerActivity, c.ref) else null
+            iv.setImageBitmap(bmp)
+            iv.visibility = if (bmp != null) View.VISIBLE else View.INVISIBLE
             val name = v.findViewById<TextView>(R.id.name)
             name.text = c.name
             val playing = panelBouquet == playBouquet && position == playIndex
@@ -617,6 +643,9 @@ class PlayerActivity : Activity() {
 
     private fun showBanner(ch: Channel) {
         bannerName.text = "${ch.num}   ${ch.name}"
+        val icon = if (prefs.picons) Picons.bitmap(this, ch.ref) else null
+        bannerIcon.setImageBitmap(icon)
+        bannerIcon.visibility = if (icon != null) View.VISIBLE else View.GONE
         bannerNow.text = ch.now
         banner.visibility = View.VISIBLE
         ui.removeCallbacks(hideBanner)
@@ -745,6 +774,10 @@ class PlayerActivity : Activity() {
             digit(keyCode - KeyEvent.KEYCODE_NUMPAD_0); return true
         }
 
+        keyMap[keyCode]?.let { act ->
+            if (act != Act.NONE) { doAct(act, keyCode); return true }
+        }
+
         if (isOk(keyCode)) {
             if (event.repeatCount == 0) {
                 suppressOkUp = false
@@ -759,19 +792,6 @@ class PlayerActivity : Activity() {
         }
 
         when (keyCode) {
-            KeyEvent.KEYCODE_CHANNEL_UP -> { play(playIndex + 1); return true }
-            KeyEvent.KEYCODE_CHANNEL_DOWN -> { play(playIndex - 1); return true }
-            KeyEvent.KEYCODE_DPAD_UP -> { play(playIndex + if (prefs.invertUpDown) -1 else 1); return true }
-            KeyEvent.KEYCODE_DPAD_DOWN -> { play(playIndex + if (prefs.invertUpDown) 1 else -1); return true }
-            KeyEvent.KEYCODE_DPAD_LEFT -> { showPanel(); return true }
-            KeyEvent.KEYCODE_DPAD_RIGHT -> { toggleStats(); return true }
-            KeyEvent.KEYCODE_INFO -> { epg.showChannelEpg(); return true }
-            KeyEvent.KEYCODE_GUIDE, KeyEvent.KEYCODE_TV_DATA_SERVICE -> { epg.showMultiEpg(); return true }
-            KeyEvent.KEYCODE_SEARCH -> { epg.showSearch(); return true }
-            KeyEvent.KEYCODE_MENU -> { showQuickMenu(); return true }
-            KeyEvent.KEYCODE_SETTINGS -> { openSettings(); return true }
-            KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK -> { showAudioDialog(); return true }
-            KeyEvent.KEYCODE_LAST_CHANNEL, KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { recall(); return true }
             KeyEvent.KEYCODE_BACK -> {
                 if (stats.visibility == View.VISIBLE) { stats.visibility = View.GONE; prefs.showStats = false; return true }
                 if (banner.visibility == View.VISIBLE) { banner.visibility = View.GONE; return true }
@@ -804,6 +824,25 @@ class PlayerActivity : Activity() {
             return true
         }
         return super.onKeyUp(keyCode, event)
+    }
+
+    private fun doAct(act: Act, keyCode: Int) {
+        val inv = prefs.invertUpDown && (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN)
+        when (act) {
+            Act.NONE -> {}
+            Act.CHANNEL_LIST -> showPanel()
+            Act.EPG_EVENT -> epg.showCurrentEvent()
+            Act.EPG_CHANNEL -> epg.showChannelEpg()
+            Act.MULTI_EPG -> epg.showMultiEpg()
+            Act.EPG_SEARCH -> epg.showSearch()
+            Act.AUDIO -> showAudioDialog()
+            Act.STATS -> toggleStats()
+            Act.MENU -> showQuickMenu()
+            Act.SETTINGS -> openSettings()
+            Act.RECALL -> recall()
+            Act.CH_UP -> play(playIndex + if (inv) -1 else 1)
+            Act.CH_DOWN -> play(playIndex + if (inv) 1 else -1)
+        }
     }
 
     private fun openSettings() {
@@ -882,8 +921,9 @@ class PlayerActivity : Activity() {
 
     private fun showQuickMenu() {
         val items = listOf<Pair<String, () -> Unit>>(
+            "EPG wydarzenia" to { epg.showCurrentEvent() },
             "EPG kanału" to { epg.showChannelEpg() },
-            "Multi-EPG bukietu" to { epg.showMultiEpg() },
+            "Multi EPG" to { epg.showMultiEpg() },
             "Szukaj w EPG" to { epg.showSearch() },
             "Ścieżka dźwięku…" to { showAudioDialog() },
             "Ustawienia" to { openSettings() },
