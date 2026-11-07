@@ -834,6 +834,20 @@ class PlayerActivity : Activity() {
 
     private fun dumpStall(reason: String) {
         val a = analyzer ?: return
+        // Problemy „startowe” (brak PMT, brak danych) to nie awaria strumienia — tylko wpis w logu,
+        // bez zrzutu TS. Zrzut ma sens, gdy strumień był kompletny i odtwarzany.
+        val startIssue = !a.pmtSeen || a.bytes < 2_000_000
+        if (startIssue) {
+            val why = when {
+                a.bytes == 0L -> "dekoder nie wysyła danych"
+                !a.pmtSeen && a.pmtInjected == 0 -> "brak PMT, jeszcze nie zapamiętany dla kanału"
+                !a.pmtSeen -> "brak PMT mimo wstawienia zapamiętanego"
+                else -> "za mało danych"
+            }
+            AppLog.i("start: restart ($reason) — $why; ${a.summary()}")
+            if (a.bytes == 0L && failStreak >= 2) showMessage("Dekoder nie wysyła danych dla tego kanału", 6000)
+            return
+        }
         AppLog.i("ZAWIESZENIE ($reason) | ${a.summary()} | ${decoderInfo()}")
         if (!prefs.saveTs) return
         val now = SystemClock.elapsedRealtime()

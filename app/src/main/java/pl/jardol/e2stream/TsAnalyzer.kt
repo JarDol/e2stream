@@ -31,6 +31,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
     // --- znaczniki czasu: PTS/DTS względem PCR (ms)
     private var lastPcrAny = -1L
     private var lastPcrTicks = -1L
+    private var pcrPid = -1
     private val pidSeen = IntArray(8192)
     private val lastDts = LongArray(8192) { -1 }
     private val lastStep = LongArray(8192)
@@ -132,6 +133,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         pidSeen.fill(0); lastDts.fill(-1); lastStep.fill(0); offEma.fill(NONE); badRun.fill(0)
         tsFixed = 0
         lastPcrTicks = -1
+        pcrPid = -1
         injectIdx = 0
         injectCc = 0
         lastInjectAt = 0
@@ -323,10 +325,16 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         val base = (u(p, i).toLong() shl 25) or (u(p, i + 1).toLong() shl 17) or
             (u(p, i + 2).toLong() shl 9) or (u(p, i + 3).toLong() shl 1) or (u(p, i + 4).toLong() shr 7)
         val ms = base / 90
-        lastPcrAny = ms
-        lastPcrTicks = base
         val last = lastPcrMs[pid]
         lastPcrMs[pid] = ms
+        if (pid == pcrPid) {
+            lastPcrAny = ms
+            lastPcrTicks = base
+            if (disc || (last >= 0 && (ms - last < 0 || ms - last > 700))) {
+                // nieciągłość zegara programu — znaczniki liczymy od nowa
+                offEma.fill(NONE); lastDts.fill(-1); badRun.fill(0)
+            }
+        }
         if (last >= 0 && !disc) {
             val d = ms - last
             if (d < 0 || d > 700) {
@@ -374,7 +382,8 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         val dts = readTs(p, if (dtsI >= 0) dtsI else ptsI)
         val off = wrapDiff(dts, lastPcrTicks)
         val ema = offEma[pid]
-        if (ema != NONE && kotlin.math.abs(off - ema) > 3 * 90_000L && badRun[pid] < 40) {
+        val absurd = kotlin.math.abs(off) > 5 * 90_000L
+        if (ema != NONE && absurd && kotlin.math.abs(off - ema) > 3 * 90_000L && badRun[pid] < 40) {
             badRun[pid]++
             tsFixed++
             val devMs = (off - ema) / 90
@@ -402,7 +411,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
             if (st in 1L..90_000L) lastStep[pid] = st
         }
         lastDts[pid] = dts
-        offEma[pid] = if (ema == NONE) off else ema + (off - ema) / 8
+        if (!absurd) offEma[pid] = if (ema == NONE) off else ema + (off - ema) / 8
         val offMs = off / 90
         if (pid in videoPids) {
             if (offMs < ivVMin) ivVMin = offMs
@@ -611,6 +620,8 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         if (expectedSid >= 0 && prog != expectedSid) return false
         val sectionEnd = end - 4
         val version = (u(p, t + 5) shr 1) and 0x1f
+        val pp = ((u(p, t + 8) and 0x1f) shl 8) or u(p, t + 9)
+        if (pp != pcrPid) { pcrPid = pp; lastPcrTicks = -1; offEma.fill(NONE); lastDts.fill(-1) }
         if (version == pmtVersion) return true
         val pil = ((u(p, t + 10) and 0x0f) shl 8) or u(p, t + 11)
         var k = t + 12 + pil

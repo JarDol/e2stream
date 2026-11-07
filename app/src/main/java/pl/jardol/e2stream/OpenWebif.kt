@@ -86,10 +86,23 @@ class OpenWebif(private val p: Prefs) {
             if ((flags and 1) != 0) continue  // katalog / podbukiet
             n++
             val pos = o.optInt("pos", 0)
-            out.add(Channel(if (pos > 0) pos else n, o.optString("servicename", ref).trim(), ref))
+            // usługa z alternatywami (flaga 128) — strumieniujemy pierwszą alternatywę
+            val playRef = if ((flags and 128) != 0) resolveAlternative(ref) ?: ref else ref
+            out.add(Channel(if (pos > 0) pos else n, o.optString("servicename", ref).trim(), playRef))
         }
         return out
     }
+
+    private fun resolveAlternative(ref: String): String? = try {
+        val arr = get("/api/getservices?sRef=" + enc(ref)).optJSONArray("services")
+        var r: String? = null
+        if (arr != null) for (i in 0 until arr.length()) {
+            val c = arr.optJSONObject(i)?.optString("servicereference") ?: continue
+            val f = c.split(":").getOrNull(1)?.toIntOrNull() ?: 0
+            if (c.isNotEmpty() && (f and (64 or 128 or 1)) == 0) { r = c; break }
+        }
+        r
+    } catch (_: Exception) { null }
 
     /** Bieżące audycje dla całego bukietu: klucz(sref) -> tytuł. */
     fun epgNow(b: Bouquet): Map<String, String> {
