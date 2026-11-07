@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:background="#FF101418">
+    <LinearLayout android:layout_width="720dp" android:layout_height="wrap_content" android:layout_gravity="center_horizontal" android:orientation="vertical" android:padding="32dp">
+        <TextView android:id="@+id/version" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FF4FC3F7" android:textSize="28sp" android:textStyle="bold" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Adres IP dekodera (np. 192.168.1.20)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
+        <EditText android:id="@+id/host" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Port OpenWebif" android:textColor="#FFB0BEC5" android:textSize="16sp" />
+        <EditText android:id="@+id/httpPort" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Port streamingu" android:textColor="#FFB0BEC5" android:textSize="16sp" />
+        <EditText android:id="@+id/streamPort" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Użytkownik (puste = bez logowania)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
+        <EditText android:id="@+id/user" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Hasło" android:textColor="#FFB0BEC5" android:textSize="16sp" />
+        <EditText android:id="@+id/pass" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="textPassword" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
+        <CheckBox android:id="@+id/tunneling" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Tunelowanie wideo (jak w DreamTV)" android:textColor="#FFFFFFFF" android:textSize="20sp" />
+        <CheckBox android:id="@+id/watchdog" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Automatyczne wznawianie zawieszonego obrazu" android:textColor="#FFFFFFFF" android:textSize="20sp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Zawieszenie po (sekundy bez nowych klatek)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
+        <EditText android:id="@+id/stallSec" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Bufor startowy (ms)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
+        <EditText android:id="@+id/bufferMs" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
+        <CheckBox android:id="@+id/force50" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Wymuś 50 Hz na ekranie podczas oglądania" android:textColor="#FFFFFFFF" android:textSize="20sp" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:orientation="horizontal">
+            <Button android:id="@+id/save" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Zapisz" android:textSize="20sp" />
+            <Button android:id="@+id/cancel" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Anuluj" android:textSize="20sp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>
