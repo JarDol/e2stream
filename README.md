@@ -18,7 +18,7 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 * Miejsce zapisu: pamięć urządzenia lub pendrive/karta (katalog `Android/data/pl.jardol.e2stream/files/`).
 * Wybór widocznych bukietów, PIN do ustawień, aktualizacja aplikacji z GitHub (menu → Aktualizacja).
 * Log diagnostyczny: lokalnie w `Android/data/pl.jardol.e2stream/files/e2stream.log`
-  i co 2 minuty przez FTP na dekoder (domyślnie `/tmp/e2stream-<model>.log`).
+  i co 2 minuty przez FTP na dekoder (domyślnie `/media/hdd/e2stream/e2stream-<model>.log`).
 
 ## Pilot
 
@@ -41,7 +41,7 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 * adres dekodera, port OpenWebif (80), port streamingu (8001), login/hasło,
 * tunelowanie (domyślnie włączone),
 * watchdog i próg zawieszenia (domyślnie 3 s),
-* bufor startowy (domyślnie 1500 ms),
+* bufor startowy (domyślnie 700 ms),
 * odświeżanie ekranu (bez zmian / 50 Hz / automatycznie),
 * preferowany język dźwięku i AC3,
 * log przez FTP: użytkownik (root), hasło, katalog na dekoderze.

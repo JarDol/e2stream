@@ -52,7 +52,7 @@ class Prefs(ctx: Context) {
 
     /** Bufor startowy w ms. */
     var bufferMs: Int
-        get() = sp.getInt("bufferMs", 1500)
+        get() = sp.getInt("bufferMs", 700)
         set(v) = putI("bufferMs", v)
 
     /** Odświeżanie ekranu: 0 = bez zmian, 1 = zawsze 50 Hz, 2 = automatycznie wg treści. */
@@ -88,7 +88,7 @@ class Prefs(ctx: Context) {
         set(v) = putS("ftpPass", v)
 
     var ftpDir: String
-        get() = s("ftpDir", "/tmp")
+        get() = s("ftpDir", DEFAULT_FTP_DIR)
         set(v) = putS("ftpDir", v)
 
     /** Katalog zapisu logów i zrzutów TS (pusty = domyślny katalog aplikacji). */
@@ -150,4 +150,18 @@ class Prefs(ctx: Context) {
         get() = sp.getInt("version", 0)
 
     fun bump() = putI("version", version + 1)
+
+    /** Jednorazowe przejście ze starych wartości domyślnych na nowe. */
+    fun migrate() {
+        val v = sp.getInt("prefsVer", 1)
+        if (v < 2) {
+            if (sp.getString("ftpDir", null) == "/tmp") putS("ftpDir", DEFAULT_FTP_DIR)
+            if (sp.getInt("bufferMs", -1) == 1500) putI("bufferMs", 700)
+            putI("prefsVer", 2)
+        }
+    }
+
+    companion object {
+        const val DEFAULT_FTP_DIR = "/media/hdd/e2stream"
+    }
 }

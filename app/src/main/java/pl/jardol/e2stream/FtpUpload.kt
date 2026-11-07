@@ -53,7 +53,18 @@ object FtpUpload {
             if (resp.startsWith("331")) resp = cmd("PASS $pass")
             expect(resp, "230")
             expect(cmd("TYPE I"), "200")
-            if (remoteDir.isNotBlank()) expect(cmd("CWD $remoteDir"), "250")
+            if (remoteDir.isNotBlank() && !cmd("CWD $remoteDir").startsWith("250")) {
+                // katalog nie istnieje — tworzymy go po kolei, segment po segmencie
+                var path = ""
+                for (seg in remoteDir.trim('/').split('/').filter { it.isNotEmpty() }) {
+                    path += "/$seg"
+                    if (!cmd("CWD $path").startsWith("250")) {
+                        val m = cmd("MKD $path")
+                        if (!m.startsWith("257") && !cmd("CWD $path").startsWith("250")) throw IOException("FTP: nie można utworzyć $path: $m")
+                    }
+                }
+                expect(cmd("CWD $remoteDir"), "250")
+            }
 
             val pasv = cmd("PASV")
             expect(pasv, "227")

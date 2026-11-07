@@ -15,6 +15,7 @@ class SettingsActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
         val p = Prefs(this)
+        p.migrate()
         AppLog.init(this, Storage.dir(this, p))
         var storageDir = p.storageDir
         var hidden = p.hiddenBouquets
@@ -170,7 +171,7 @@ class SettingsActivity : Activity() {
             p.tunneling = tunneling.isChecked
             p.watchdog = watchdog.isChecked
             p.stallSec = (stallSec.text.toString().toIntOrNull() ?: 3).coerceIn(1, 30)
-            p.bufferMs = (bufferMs.text.toString().toIntOrNull() ?: 1500).coerceIn(500, 10_000)
+            p.bufferMs = (bufferMs.text.toString().toIntOrNull() ?: 700).coerceIn(250, 10_000)
             p.afrMode = when (afr.checkedRadioButtonId) {
                 R.id.afr50 -> 1
                 R.id.afrAuto -> 2
@@ -181,7 +182,7 @@ class SettingsActivity : Activity() {
             p.logFtp = logFtp.isChecked
             p.ftpUser = ftpUser.text.toString().trim().ifEmpty { "root" }
             p.ftpPass = ftpPass.text.toString()
-            p.ftpDir = ftpDir.text.toString().trim().ifEmpty { "/tmp" }
+            p.ftpDir = ftpDir.text.toString().trim().ifEmpty { Prefs.DEFAULT_FTP_DIR }
             p.resumeLast = resumeLast.isChecked
             p.invertUpDown = invertUpDown.isChecked
             p.bannerSec = (bannerSec.text.toString().toIntOrNull() ?: 4).coerceIn(1, 30)

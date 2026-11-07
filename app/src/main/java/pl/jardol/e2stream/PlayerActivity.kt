@@ -94,6 +94,9 @@ class PlayerActivity : Activity() {
     private var analyzerRing = -1
     private var lastDumpAt = 0L
     private var updateChecked = false
+    private var streamStartAt = 0L
+    private var readyLogged = false
+    private var lastStartMs = -1L
     private var audioAppliedGen = -1
 
     // ---------------------------------------------------------------- cykl życia
@@ -104,7 +107,8 @@ class PlayerActivity : Activity() {
         setContentView(R.layout.activity_player)
         prefs = Prefs(this)
         api = OpenWebif(prefs)
-        AppLog.init(this)
+        prefs.migrate()
+        AppLog.init(this, Storage.dir(this, prefs))
         AppLog.i("=== Start E2Stream ${appVersion()} | ${Build.MANUFACTURER} ${Build.MODEL} | Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) | ekran: ${displayInfo()}")
 
         playerView = findViewById(R.id.playerView)
@@ -177,8 +181,8 @@ class PlayerActivity : Activity() {
 
         val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
 
-        val start = prefs.bufferMs.coerceIn(500, 10_000)
-        val minBuf = maxOf(start * 2, 3000)
+        val start = prefs.bufferMs.coerceIn(250, 10_000)
+        val minBuf = maxOf(start * 2, 2000)
         val load = DefaultLoadControl.Builder()
             .setBufferDurationsMs(minBuf, maxOf(minBuf, 15_000), start, start)
             .build()
@@ -202,7 +206,16 @@ class PlayerActivity : Activity() {
                     else -> "ENDED"
                 }
                 AppLog.i("stan: $n (bufor ${p.totalBufferedDuration} ms)")
+                if (playbackState == Player.STATE_READY && !readyLogged) {
+                    readyLogged = true
+                    AppLog.i("start: READY po ${SystemClock.elapsedRealtime() - streamStartAt} ms")
+                }
                 if (playbackState == Player.STATE_ENDED) scheduleRestart("koniec strumienia")
+            }
+
+            override fun onRenderedFirstFrame() {
+                lastStartMs = SystemClock.elapsedRealtime() - streamStartAt
+                AppLog.i("start: pierwszy obraz po $lastStartMs ms")
             }
 
             override fun onTracksChanged(tracks: Tracks) {
@@ -333,6 +346,9 @@ class PlayerActivity : Activity() {
         val p = player ?: return
         currentUrl = url
         streamGen++
+        streamStartAt = SystemClock.elapsedRealtime()
+        readyLogged = false
+        lastStartMs = -1
         analyzer?.reset()
         p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
             .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
@@ -595,7 +611,7 @@ class PlayerActivity : Activity() {
                 } ?: "-")
             )
             appendLine("Tunelowanie: " + if (prefs.tunneling) "włączone" else "wyłączone")
-            appendLine("Bufor: ${p.totalBufferedDuration} ms")
+            appendLine("Bufor: ${p.totalBufferedDuration} ms   start obrazu: " + (if (lastStartMs >= 0) "$lastStartMs ms" else "-"))
             analyzer?.let { a ->
                 appendLine("TS: %.2f Mb/s  odczyt maks. ${a.maxGapMs} ms".format(a.bitrateKbps / 1000.0))
                 appendLine("TS błędy: CC ${a.ccErrors}  TEI ${a.teiErrors}  kod. ${a.scrambled}  sync ${a.syncLoss}  PCR ${a.pcrJumps}  PMT ${a.pmtChanges}")
