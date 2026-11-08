@@ -203,7 +203,7 @@ class PlayerActivity : Activity() {
         stats.visibility = if (prefs.showStats) View.VISIBLE else View.GONE
         keyMap = KeyMap.load(prefs)
         ui.removeCallbacks(epgTick)
-        ui.postDelayed(epgTick, 30_000)
+        ui.postDelayed(epgTick, 15_000)
         ensureAnalyzer()
         buildPlayer()
         applyDisplayMode()
@@ -234,7 +234,8 @@ class PlayerActivity : Activity() {
     private val epgTick = object : Runnable {
         override fun run() {
             if (EpgSync.due(prefs)) {
-                AppLog.i("EPG: pobieranie wg harmonogramu (${prefs.epgHour})")
+                AppLog.i(if (prefs.pluginOk) "EPG: pierwsze uruchomienie dnia — pobieranie danych z dekodera (EPG, ikony, kanały)"
+                    else "EPG: pobieranie wg harmonogramu (${prefs.epgHour})")
                 EpgSync.run(applicationContext, prefs, epgStore, { }) { r ->
                     runOnUiThread { epg.clearMemory(); adapter.notifyDataSetChanged(); AppLog.i(r) }
                 }
@@ -400,7 +401,8 @@ class PlayerActivity : Activity() {
         val ring = if (prefs.saveTs) prefs.tsRingMb.coerceIn(2, 64) * 1_000_000 else 0
         if (analyzer == null || ring != analyzerRing) {
             analyzer = TsAnalyzer(ring) { msg -> AppLog.i(msg) }.also { a ->
-                a.pmtCacheGet = { sid -> prefs.pmtFor(sid) }
+                // zapamiętany PMT kanału, a gdy go nie ma — PMT zbudowany z PID-ów z dekodera (EPG Scan)
+                a.pmtCacheGet = { sid -> prefs.pmtFor(sid) ?: PmtBuilder.build(sid, prefs.pidsFor(sid)) }
                 a.pmtCachePut = { sid, b -> prefs.setPmtFor(sid, b) }
             }
             analyzerRing = ring
@@ -561,6 +563,7 @@ class PlayerActivity : Activity() {
         showMessage("Łączenie z ${prefs.host}…", 10_000)
         io.execute {
             try {
+                PluginApi.check(prefs)   // wtyczka EPG Scan na dekoderze?
                 val all = api.bouquets()
                 val hidden = prefs.hiddenBouquets
                 val bq = all.filter { it.ref !in hidden }.ifEmpty { all }

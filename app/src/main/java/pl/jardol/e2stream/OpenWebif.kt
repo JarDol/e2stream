@@ -38,6 +38,9 @@ class OpenWebif(private val p: Prefs) {
         /** Klucz do porównywania referencji serwisów (różne formy końcówki ':'). */
         fun key(ref: String) = ref.trim().trimEnd(':').uppercase()
 
+        /** SID z referencji 1:0:T:SID:... (hex). */
+        fun sidOf(ref: String): Int? = ref.split(":").getOrNull(3)?.toIntOrNull(16)
+
         private val ENTITY = Regex("&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);")
         private val NAMED = mapOf(
             "quot" to "\"", "amp" to "&", "lt" to "<", "gt" to ">", "apos" to "'", "nbsp" to " ",
@@ -86,7 +89,10 @@ class OpenWebif(private val p: Prefs) {
     }
 
     /** Bukiety TV. */
+    private fun plugin(): PluginApi? = if (p.pluginOk) PluginApi(p) else null
+
     fun bouquets(): List<Bouquet> {
+        plugin()?.let { pa -> try { return pa.bouquets() } catch (e: Exception) { AppLog.i("EPG Scan: bukiety przez OpenWebif ($e)") } }
         val arr = get("/api/getservices").optJSONArray("services") ?: return emptyList()
         val out = ArrayList<Bouquet>()
         for (i in 0 until arr.length()) {
@@ -100,6 +106,7 @@ class OpenWebif(private val p: Prefs) {
 
     /** Kanały bukietu (bez markerów i podkatalogów). */
     fun channels(b: Bouquet): List<Channel> {
+        plugin()?.let { pa -> try { return pa.channels(b) } catch (e: Exception) { AppLog.i("EPG Scan: kanały przez OpenWebif ($e)") } }
         val arr = get("/api/getservices?sRef=" + enc(b.ref)).optJSONArray("services")
             ?: return emptyList()
         val out = ArrayList<Channel>()

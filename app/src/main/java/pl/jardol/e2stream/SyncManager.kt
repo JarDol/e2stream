@@ -144,10 +144,18 @@ object SyncManager {
         var common: JSONObject? = null
         var dev: JSONObject? = null
         var legacy: JSONObject? = null
-        FtpSession(prefs.host, 21, prefs.ftpUser, prefs.ftpPass).use { ftp ->
-            common = read(ftp, "$dir/$COMMON")
-            dev = read(ftp, "$dir/$devName")
-            if (common == null) legacy = read(ftp, prefs.ftpDir.trimEnd('/') + "/" + LEGACY)
+        // wtyczka EPG Scan na dekoderze — przez jej API (bez FTP); inaczej pliki przez FTP
+        val plugin = if (prefs.pluginOk) PluginApi(prefs) else null
+        if (plugin != null) {
+            val st = plugin.syncState(deviceId())
+            common = st.optJSONObject("common")
+            dev = st.optJSONObject("device")
+        } else {
+            FtpSession(prefs.host, 21, prefs.ftpUser, prefs.ftpPass).use { ftp ->
+                common = read(ftp, "$dir/$COMMON")
+                dev = read(ftp, "$dir/$devName")
+                if (common == null) legacy = read(ftp, prefs.ftpDir.trimEnd('/') + "/" + LEGACY)
+            }
         }
         val now = System.currentTimeMillis()
         val c = common ?: JSONObject()
@@ -232,10 +240,19 @@ object SyncManager {
             if (write) { cData.put(k, entry(v, t)); commonChanged = true }
         }
 
-        if (first || dirty || dev == null || applied > 0) upload(prefs, devName, myFile)
-        if (commonChanged) {
-            c.put("updated", now)
-            upload(prefs, COMMON, c)
+        if (plugin != null) {
+            // wtyczka scala po swojej stronie: plik odbiornika + PMT do części wspólnej
+            if (first || dirty || dev == null || applied > 0 || commonChanged) {
+                val pmt = JSONObject()
+                for ((k, v) in all) if (isPmt(k)) toJson(v)?.let { pmt.put(k, JSONObject().put("v", it).put("t", meta.getLong("t_$k", 0))) }
+                plugin.syncPush(deviceId(), JSONObject().put("device", myFile).put("common_add", pmt))
+            }
+        } else {
+            if (first || dirty || dev == null || applied > 0) upload(prefs, devName, myFile)
+            if (commonChanged) {
+                c.put("updated", now)
+                upload(prefs, COMMON, c)
+            }
         }
         meta.edit().putBoolean("dirty", false).putLong("lastSync", now).apply()
 
@@ -249,6 +266,16 @@ object SyncManager {
 
     fun profiles(prefs: Prefs): List<Profile> {
         val out = ArrayList<Profile>()
+        if (prefs.pluginOk) {
+            val arr = PluginApi(prefs).devices()
+            for (i in 0 until arr.length()) {
+                val js = arr.optJSONObject(i) ?: continue
+                val d = js.optJSONObject("device") ?: JSONObject()
+                out.add(Profile(js.optString("file"), d.optString("name"), d.optString("model"), d.optLong("updated"),
+                    js.optJSONObject("data") ?: JSONObject()))
+            }
+            return out.sortedByDescending { it.updated }
+        }
         FtpSession(prefs.host, 21, prefs.ftpUser, prefs.ftpPass).use { ftp ->
             val dir = dirPath(prefs)
             val names = ftp.list(dir) ?: ftp.list(dir.trimStart('/')) ?: return out

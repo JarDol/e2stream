@@ -67,6 +67,11 @@ class SettingsActivity : Activity() {
         Item.Text("FTP — hasło", { p.ftpPass }, { p.ftpPass = it }, secret = true),
         Item.Text("FTP — katalog na dekoderze", { p.ftpDir }, { p.ftpDir = it.trim().ifEmpty { Prefs.DEFAULT_FTP_DIR } }),
 
+        Item.Header("Wtyczka EPG Scan na dekoderze"),
+        Item.Action("Stan wtyczki", { if (p.pluginOk) "jest — ${p.pluginVersion}" else "brak (OpenWebif + FTP)" }) { checkPlugin() },
+        num("Port wtyczki", { p.pluginPort }, { p.pluginPort = it }, 1024..65535),
+        Item.Text("Token wtyczki", { p.pluginToken }, { p.pluginToken = it.trim() }, secret = true, hint = "puste = bez (sieć lokalna)"),
+
         Item.Header("Synchronizacja z dekoderem"),
         Item.Toggle("Synchronizuj ustawienia i dane kanałów", { p.channelSync }, { p.channelSync = it }),
         Item.Text("Nazwa tego odbiornika", { p.deviceName }, { p.deviceName = it.trim().ifEmpty { android.os.Build.MODEL } },
@@ -96,7 +101,7 @@ class SettingsActivity : Activity() {
             InputType.TYPE_CLASS_NUMBER, secret = true, hint = "puste = bez blokady; odblokowanie na 1 min"),
 
         Item.Header("EPG i ikony kanałów"),
-        Item.Toggle("Pobieraj EPG codziennie", { p.epgDaily }, { p.epgDaily = it }),
+        Item.Toggle("Pobieraj EPG codziennie (bez wtyczki EPG Scan)", { p.epgDaily }, { p.epgDaily = it }),
         Item.Text("Godzina pobierania EPG", { p.epgHour },
             { v -> if (Regex("^\\d{1,2}:\\d{2}$").matches(v.trim())) p.epgHour = v.trim() else toast("Format HH:MM") },
             InputType.TYPE_CLASS_DATETIME or InputType.TYPE_DATETIME_VARIATION_TIME, hint = "HH:MM"),
@@ -309,6 +314,18 @@ class SettingsActivity : Activity() {
                         }.start()
                     }
                     .show()
+            }
+        }.start()
+    }
+
+    private fun checkPlugin() {
+        toast("Sprawdzam wtyczkę EPG Scan…")
+        Thread {
+            val ok = PluginApi.check(p)
+            runOnUiThread {
+                toast(if (ok) "EPG Scan ${p.pluginVersion} — kanały, PID-y i synchronizacja przez wtyczkę"
+                else "Brak wtyczki EPG Scan (port ${p.pluginPort}) — używam OpenWebif i FTP")
+                markChanged("wtyczka: ${if (ok) p.pluginVersion else "brak"}")
             }
         }.start()
     }

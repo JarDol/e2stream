@@ -55,6 +55,16 @@ object Discovery {
         return found.sortedBy { it.ip.substringAfterLast('.').toIntOrNull() ?: 0 }
     }
 
+    /** Wersja wtyczki EPG Scan (serwer dla klientów, port 8770) albo null. */
+    private fun epgScanVersion(ip: String): String? = try {
+        val c = URL("http://$ip:8770/api/info").openConnection() as HttpURLConnection
+        c.connectTimeout = 1200
+        c.readTimeout = 2000
+        try {
+            if (c.responseCode == 200) JSONObject(c.inputStream.bufferedReader().use { it.readText() }).optString("version").ifBlank { null } else null
+        } finally { c.disconnect() }
+    } catch (_: Exception) { null }
+
     private fun probe(ip: String, port: Int): FoundReceiver? {
         try {
             Socket().use { it.connect(InetSocketAddress(ip, port), 350) }
@@ -74,9 +84,10 @@ object Discovery {
                         val model = info.optString("model")
                         val distro = info.optString("imagedistro")
                         val ver = info.optString("imagever")
-                        FoundReceiver(ip, "$brand $model  ($distro $ver)".trim())
+                        val epgscan = epgScanVersion(ip)
+                        FoundReceiver(ip, "$brand $model  ($distro $ver)".trim() + (if (epgscan != null) "  + EPG Scan $epgscan" else ""))
                     }
-                    401 -> FoundReceiver(ip, "OpenWebif (wymaga logowania)")
+                    401 -> FoundReceiver(ip, "OpenWebif (wymaga logowania)" + (epgScanVersion(ip)?.let { "  + EPG Scan $it" } ?: ""))
                     else -> null
                 }
             } finally {

@@ -74,8 +74,18 @@ object EpgSync {
     }
 
     /** true, gdy od ostatniego terminu harmonogramu EPG nie było pobierane. */
-    fun due(prefs: Prefs): Boolean =
-        prefs.epgDaily && !running && prefs.host.isNotBlank() && prefs.lastEpgFetch < lastScheduled(prefs.epgHour)
+    fun due(prefs: Prefs): Boolean {
+        if (running || prefs.host.isBlank()) return false
+        // z wtyczką EPG Scan: pierwsze uruchomienie w danym dniu pobiera wszystko (bez harmonogramu w aplikacji)
+        if (prefs.pluginOk) return prefs.lastEpgFetch < startOfToday()
+        return prefs.epgDaily && prefs.lastEpgFetch < lastScheduled(prefs.epgHour)
+    }
+
+    private fun startOfToday(): Long {
+        val c = Calendar.getInstance()
+        c.set(Calendar.HOUR_OF_DAY, 0); c.set(Calendar.MINUTE, 0); c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
+        return c.timeInMillis
+    }
 
     fun run(ctx: Context, prefs: Prefs, store: EpgStore, progress: (String) -> Unit, done: (String) -> Unit) {
         if (running) { done("Pobieranie EPG już trwa"); return }

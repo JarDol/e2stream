@@ -81,3 +81,13 @@ w sklepie trzeba go zmienić.
 ## Licencja
 
 GPL-2.0-or-later. Korzysta z AndroidX Media3 (Apache-2.0).
+
+## Współpraca z wtyczką EPG Scan
+
+Gdy na dekoderze działa EPG Scan 2.12.0+ z włączonym „Serwerem dla aplikacji E2Stream” (port 8770):
+
+* bukiety i kanały (z rozwiązanymi alternatywami) pobierane są z wtyczki — bez loginu do OpenWebif,
+* PID-y kanałów z `lamedb` pozwalają zbudować PMT, gdy dekoder go nie wysyła — także przy pierwszym oglądaniu kanału,
+* synchronizacja ustawień i danych kanałów idzie przez API wtyczki (bez FTP); dane na dekoderze:
+  `/etc/enigma2/epgscan/clients/common.json` i `device-<id>.json`,
+* pierwsze uruchomienie aplikacji w danym dniu pobiera EPG, ikony i dane kanałów (bez harmonogramu w aplikacji).

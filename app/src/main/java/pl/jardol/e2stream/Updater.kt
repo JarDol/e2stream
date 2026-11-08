@@ -12,10 +12,10 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
-/** Aktualizacja z GitHub Releases (JarDol/e2stream). Metody sieciowe poza wątkiem UI. */
+/** Aktualizacja z GitHub Releases (JarDol/enigma2-epgscan, wydania e2stream-X.Y.Z). Metody sieciowe poza wątkiem UI. */
 object Updater {
 
-    private const val API = "https://api.github.com/repos/JarDol/e2stream/releases?per_page=30"
+    private const val API = "https://api.github.com/repos/JarDol/enigma2-epgscan/releases?per_page=50"
 
     data class Info(val version: String, val url: String, val name: String)
 
@@ -36,7 +36,9 @@ object Updater {
             for (r in 0 until arr.length()) {
                 val js = arr.optJSONObject(r) ?: continue
                 if (js.optBoolean("draft") || js.optBoolean("prerelease")) continue
-                val tag = js.optString("tag_name").removePrefix("v")
+                val rawTag = js.optString("tag_name")
+                if (!rawTag.startsWith("e2stream-")) continue   // w repo są też wydania wtyczki i serwera
+                val tag = rawTag.removePrefix("e2stream-").removePrefix("v")
                 val assets = js.optJSONArray("assets") ?: continue
                 for (i in 0 until assets.length()) {
                     val a = assets.optJSONObject(i) ?: continue

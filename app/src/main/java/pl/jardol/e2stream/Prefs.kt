@@ -131,6 +131,27 @@ class Prefs(ctx: Context) {
 
     fun putChannelData(k: String, v: String) { if (isChannelKey(k)) putS(k, v) }
 
+    /** Wtyczka EPG Scan na dekoderze (serwer dla klientów). */
+    var pluginPort: Int
+        get() = sp.getInt("pluginPort", 8770)
+        set(v) = putI("pluginPort", v)
+
+    var pluginToken: String
+        get() = s("pluginToken")
+        set(v) = putS("pluginToken", v)
+
+    var pluginOk: Boolean
+        get() = sp.getBoolean("pluginOk", false)
+        set(v) = putB("pluginOk", v)
+
+    var pluginVersion: String
+        get() = s("pluginVersion")
+        set(v) = putS("pluginVersion", v)
+
+    /** PID-y kanału z lamedb (JSON z wtyczki). */
+    fun pidsFor(sid: Int): String? = s("pids_$sid").takeIf { it.isNotEmpty() }
+    fun setPidsFor(sid: Int, json: String) { if (s("pids_$sid") != json) putS("pids_$sid", json) }
+
     /** Nazwa tego odbiornika w synchronizacji (np. „Salon – Philips”). */
     var deviceName: String
         get() = s("deviceName", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
