@@ -135,6 +135,17 @@ class EpgUi(
 
     fun clearMemory() = synchronized(cache) { cache.clear() }
 
+    /** Bieżąca i następna audycja kanału (z pamięci/zapisu, w razie potrzeby z dekodera); wynik na wątku UI. */
+    fun nowNext(ch: Channel, cb: (EpgEvent?, EpgEvent?) -> Unit) {
+        io.execute {
+            val ev = try { load(ch.ref) } catch (_: Exception) { emptyList() }
+            val n = now()
+            val cur = ev.firstOrNull { it.begin <= n && it.end > n }
+            val next = ev.firstOrNull { it.begin >= (cur?.end ?: n) }
+            a.runOnUiThread { cb(cur, next) }
+        }
+    }
+
     // ------------------------------------------------------------ EPG wydarzenia
 
     /** Od razu opis bieżącej audycji kanału. */

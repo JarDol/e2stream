@@ -40,6 +40,16 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
     @Volatile var tsFixed = 0L
         private set
     private var cachedSection: ByteArray? = null
+    private var recentPk = 0L
+    private var recentScr = 0L
+
+    /** (pakiety danych, pakiety kodowane) od ostatniego wywołania — do wykrywania kanałów nierozkodowanych. */
+    @Synchronized
+    fun takeScramble(): Pair<Long, Long> {
+        val r = recentPk to recentScr
+        recentPk = 0; recentScr = 0
+        return r
+    }
     private val videoPids = HashSet<Int>()
     private val audioPids = HashSet<Int>()
     private var mainAudioPid = -1
@@ -276,6 +286,7 @@ class TsAnalyzer(ringBytes: Int, private val onEvent: (String) -> Unit) {
         }
         val b3 = u(p, o + 3)
         val scr = b3 shr 6
+        if (pid != 0 && pid != pmtPid && pid > 0x1f) { recentPk++; if (scr != 0) recentScr++ }
         val afc = (b3 shr 4) and 3
         val cc = b3 and 0x0f
         if (scr != 0) {

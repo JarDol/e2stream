@@ -31,6 +31,10 @@ class StreamWatchdog(
     private val dropRestart: Boolean = true,
 ) {
     private val hist = ArrayDeque<LongArray>()
+
+    /** Wstrzymanie (np. kanał nierozkodowany) — bez restartów. */
+    var paused = false
+        set(v) { field = v; reset() }
     private val h = Handler(Looper.getMainLooper())
     private var running = false
 
@@ -89,7 +93,7 @@ class StreamWatchdog(
 
     private fun check() {
         val now = SystemClock.elapsedRealtime()
-        if (!player.playWhenReady) {
+        if (!player.playWhenReady || paused) {
             reset(); return
         }
         when (player.playbackState) {

@@ -167,6 +167,11 @@ class Prefs(ctx: Context) {
         get() = s("lastCrash")
         set(v) = sp.edit().putString("lastCrash", v).commit().let { }
 
+    /** Zapas bufora wymagany po niedoborze (ms). */
+    var rebufferMs: Int
+        get() = sp.getInt("rebufferMs", 2000)
+        set(v) = putI("rebufferMs", v)
+
     /** Statystyki widoczne na ekranie. */
     var showStats: Boolean
         get() = sp.getBoolean("showStats", false)

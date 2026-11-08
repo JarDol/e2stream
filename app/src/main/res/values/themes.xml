@@ -3,5 +3,35 @@
     <style name="AppTheme" parent="android:Theme.Material.NoActionBar.Fullscreen">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:colorAccent">#FF4FC3F7</item>
+        <item name="android:alertDialogTheme">@style/TvDialog</item>
+        <item name="android:buttonStyle">@style/TvButton</item>
+        <item name="android:listViewStyle">@style/TvList</item>
+    </style>
+
+    <style name="TvDialog" parent="android:Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#FF4FC3F7</item>
+        <item name="android:buttonBarButtonStyle">@style/TvDialogButton</item>
+        <item name="android:listViewStyle">@style/TvList</item>
+        <item name="android:textSize">18sp</item>
+    </style>
+
+    <style name="TvButton" parent="android:Widget.Material.Button">
+        <item name="android:background">@drawable/btn_tv</item>
+        <item name="android:textColor">@color/btn_text</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+
+    <style name="TvDialogButton" parent="android:Widget.Material.Button.Borderless">
+        <item name="android:background">@drawable/btn_tv</item>
+        <item name="android:textColor">@color/btn_text</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:minWidth">130dp</item>
+        <item name="android:layout_marginStart">6dp</item>
+    </style>
+
+    <style name="TvList" parent="android:Widget.Material.ListView">
+        <item name="android:listSelector">@drawable/list_selector</item>
+        <item name="android:drawSelectorOnTop">false</item>
     </style>
 </resources>

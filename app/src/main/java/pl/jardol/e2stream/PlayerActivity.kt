@@ -54,6 +54,18 @@ class PlayerActivity : Activity() {
     private lateinit var epgStore: EpgStore
     private var keyMap: MutableMap<Int, Act> = LinkedHashMap(KeyMap.defaults)
     private lateinit var bannerIcon: android.widget.ImageView
+    private lateinit var bannerClock: TextView
+    private lateinit var bannerStart: TextView
+    private lateinit var bannerEnd: TextView
+    private lateinit var bannerNext: TextView
+    private lateinit var bannerProgress: android.widget.ProgressBar
+    private lateinit var infoIcon: android.widget.ImageView
+    private lateinit var infoTitle: TextView
+    private lateinit var infoTime: TextView
+    private lateinit var infoDesc: TextView
+    private lateinit var infoNext: TextView
+    private lateinit var infoProgress: android.widget.ProgressBar
+    private val hm = SimpleDateFormat("HH:mm", Locale("pl", "PL"))
 
     private lateinit var playerView: PlayerView
     private lateinit var panel: LinearLayout
@@ -132,6 +144,23 @@ class PlayerActivity : Activity() {
         bannerName = findViewById(R.id.bannerName)
         bannerNow = findViewById(R.id.bannerNow)
         bannerIcon = findViewById(R.id.bannerIcon)
+        bannerClock = findViewById(R.id.bannerClock)
+        bannerStart = findViewById(R.id.bannerStart)
+        bannerEnd = findViewById(R.id.bannerEnd)
+        bannerNext = findViewById(R.id.bannerNext)
+        bannerProgress = findViewById(R.id.bannerProgress)
+        infoIcon = findViewById(R.id.infoIcon)
+        infoTitle = findViewById(R.id.infoTitle)
+        infoTime = findViewById(R.id.infoTime)
+        infoDesc = findViewById(R.id.infoDesc)
+        infoNext = findViewById(R.id.infoNext)
+        infoProgress = findViewById(R.id.infoProgress)
+        list.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
+                panelList.getOrNull(pos)?.let { showInfo(it) }
+            }
+            override fun onNothingSelected(p: android.widget.AdapterView<*>?) {}
+        }
         numEntry = findViewById(R.id.numEntry)
         stats = findViewById(R.id.stats)
         message = findViewById(R.id.message)
@@ -243,7 +272,7 @@ class PlayerActivity : Activity() {
         val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
 
         val start = prefs.bufferMs.coerceIn(250, 10_000)
-        val rebuffer = maxOf(start, 4000)
+        val rebuffer = maxOf(start, prefs.rebufferMs.coerceIn(500, 10_000))
         // ExoPlayer wymaga: minBuffer ≥ bufor startowy i ≥ bufor po niedoborze
         val minBuf = maxOf(start * 2, rebuffer, 2000)
         val load = DefaultLoadControl.Builder()
@@ -376,12 +405,44 @@ class PlayerActivity : Activity() {
         analyzer?.clean = prefs.cleanTs
     }
 
+    private var encrypted = false
+    private var scrHits = 0
+    private var scrTick = 0
+
+    /** Kanał, którego dekoder nie rozkodowuje: > 80% pakietów danych kodowanych przez ~4 s. */
+    private fun checkScrambled() {
+        val a = analyzer ?: return
+        if (++scrTick < 4) return
+        scrTick = 0
+        val (pk, scr) = a.takeScramble()
+        if (pk < 200) return
+        val ratio = scr.toDouble() / pk
+        if (!encrypted && ratio > 0.8) {
+            if (++scrHits >= 2) {
+                encrypted = true
+                watchdog?.paused = true
+                ui.removeCallbacks(restartRunnable); restartPending = false
+                AppLog.i("kanał kodowany: dekoder nie rozkodowuje (${(ratio * 100).toInt()}% pakietów kodowanych) — bez restartów")
+                showMessage("Kanał kodowany — dekoder go nie rozkodowuje (karta / softcam)", 15_000)
+            }
+        } else if (ratio < 0.2) {
+            scrHits = 0
+            if (encrypted) {
+                encrypted = false
+                watchdog?.paused = false
+                AppLog.i("kanał rozkodowany — wznawiam odtwarzanie")
+                currentUrl?.let { startStream(it) }
+            }
+        }
+    }
+
     /** Szybki restart, gdy dekoder nie przysłał PMT, a odtwarzacz wciąż buforuje. */
     private val pmtCheck = object : Runnable {
         override fun run() {
+            checkScrambled()
             val a = analyzer
             val p = player
-            if (a != null && p != null && p.playbackState == Player.STATE_BUFFERING &&
+            if (!encrypted && a != null && p != null && p.playbackState == Player.STATE_BUFFERING &&
                 p.videoFormat == null && a.pmtMissingMs() > 3000
             ) {
                 scheduleRestart("brak PMT w strumieniu ${a.pmtMissingMs()} ms")
@@ -471,7 +532,7 @@ class PlayerActivity : Activity() {
     private val restartRunnable = Runnable { doRestart() }
 
     private fun scheduleRestart(reason: String) {
-        if (currentUrl == null || restartPending) return
+        if (currentUrl == null || restartPending || encrypted) return
         restartPending = true
         pendingReason = reason
         val delays = longArrayOf(0, 1000, 2000, 5000, 10_000)
@@ -543,6 +604,9 @@ class PlayerActivity : Activity() {
         failStreak = 0
         ui.removeCallbacks(restartRunnable)
         restartPending = false
+        encrypted = false; scrHits = 0; scrTick = 0
+        watchdog?.paused = false
+        analyzer?.takeScramble()
         AppLog.i("kanał: ${ch.num} ${ch.name} [${bouquets.getOrNull(bIdx)?.name}] ${api.streamUrl(ch)}")
         startStream(api.streamUrl(ch))
         showBanner(ch)
@@ -589,8 +653,10 @@ class PlayerActivity : Activity() {
         panelList = playList
         refreshPanel(playIndex.coerceAtLeast(0))
         panel.visibility = View.VISIBLE
+        banner.visibility = View.GONE
         list.requestFocus()
         loadPanelEpg()
+        playList.getOrNull(playIndex)?.let { showInfo(it) }
     }
 
     private fun hidePanel() {
@@ -678,12 +744,58 @@ class PlayerActivity : Activity() {
     private val hideBanner = Runnable { banner.visibility = View.GONE }
     private val hideMessage = Runnable { message.visibility = View.GONE }
 
+    private fun t(sec: Long) = hm.format(Date(sec * 1000))
+
+    private fun progressOf(e: EpgEvent): Int {
+        val n = System.currentTimeMillis() / 1000
+        if (e.duration <= 0) return 0
+        return (((n - e.begin) * 1000) / e.duration).toInt().coerceIn(0, 1000)
+    }
+
+    /** Dolna część listy kanałów: bieżąca audycja zaznaczonego kanału. */
+    private fun showInfo(ch: Channel) {
+        val icon = if (prefs.picons) Picons.bitmap(this, ch.ref) else null
+        infoIcon.setImageBitmap(icon)
+        infoTitle.text = ch.now.ifBlank { ch.name }
+        infoTime.text = ""
+        infoDesc.text = ""
+        infoNext.text = ""
+        infoProgress.progress = 0
+        epg.nowNext(ch) { cur, next ->
+            if (panelList.getOrNull(list.selectedItemPosition) !== ch) return@nowNext
+            if (cur != null) {
+                infoTitle.text = cur.title
+                infoTime.text = "${t(cur.begin)} – ${t(cur.end)}  (zostało ${(cur.end - System.currentTimeMillis() / 1000) / 60} min)"
+                infoProgress.progress = progressOf(cur)
+                infoDesc.text = cur.shortDesc.ifBlank { cur.longDesc }
+            } else {
+                infoTitle.text = "${ch.name} — brak EPG"
+            }
+            infoNext.text = next?.let { "Następnie  ${t(it.begin)}  ${it.title}" } ?: ""
+        }
+    }
+
     private fun showBanner(ch: Channel) {
         bannerName.text = "${ch.num}   ${ch.name}"
+        bannerClock.text = hm.format(Date())
         val icon = if (prefs.picons) Picons.bitmap(this, ch.ref) else null
         bannerIcon.setImageBitmap(icon)
         bannerIcon.visibility = if (icon != null) View.VISIBLE else View.GONE
         bannerNow.text = ch.now
+        bannerStart.text = ""
+        bannerEnd.text = ""
+        bannerNext.text = ""
+        bannerProgress.progress = 0
+        epg.nowNext(ch) { cur, next ->
+            if (playList.getOrNull(playIndex) !== ch) return@nowNext
+            if (cur != null) {
+                bannerNow.text = cur.title
+                bannerStart.text = t(cur.begin)
+                bannerEnd.text = "${t(cur.end)}   (−${(cur.end - System.currentTimeMillis() / 1000) / 60} min)"
+                bannerProgress.progress = progressOf(cur)
+            }
+            bannerNext.text = next?.let { "Następnie  ${t(it.begin)}  ${it.title}" } ?: ""
+        }
         banner.visibility = View.VISIBLE
         ui.removeCallbacks(hideBanner)
         ui.postDelayed(hideBanner, prefs.bannerSec.coerceIn(1, 30) * 1000L)

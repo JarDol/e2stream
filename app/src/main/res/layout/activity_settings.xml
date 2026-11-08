@@ -1,84 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent" android:background="#FF101418">
-    <LinearLayout android:layout_width="720dp" android:layout_height="wrap_content" android:layout_gravity="center_horizontal" android:orientation="vertical" android:padding="32dp">
-        <TextView android:id="@+id/version" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="#FF4FC3F7" android:textSize="28sp" android:textStyle="bold" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="Diagnostyka i zapis" android:textColor="#FF4FC3F7" android:textSize="20sp" android:textStyle="bold" />
-        <Button android:id="@+id/sendLog" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Wyślij log na dekoder" android:textSize="18sp" />
-        <Button android:id="@+id/sendDumps" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Wyślij zrzuty TS na dekoder" android:textSize="18sp" />
-        <Button android:id="@+id/checkUpdate" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Sprawdź aktualizację" android:textSize="18sp" />
-        <CheckBox android:id="@+id/showStats" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Pokaż statystyki na ekranie" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <Button android:id="@+id/storage" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Miejsce zapisu…" android:textSize="18sp" />
-        <TextView android:id="@+id/storageInfo" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:textColor="#FF90A4AE" android:textSize="14sp" />
-        <CheckBox android:id="@+id/cleanTs" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Czyść strumień (pakiety uszkodzone, niezdekodowane, obce PMT, błędne znaczniki czasu)" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <CheckBox android:id="@+id/saveTs" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Zapisuj ostatnie sekundy strumienia TS przy zawieszeniu" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Rozmiar zrzutu TS (MB, 2–64; 16 MB ≈ 30 s HD)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/tsRingMb" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <CheckBox android:id="@+id/logFtp" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Wysyłaj log na dekoder przez FTP (co 2 min)" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <CheckBox android:id="@+id/tsFtp" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Wysyłaj też zrzuty TS przez FTP" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Użytkownik FTP dekodera" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/ftpUser" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Hasło FTP (puste, jeśli root bez hasła)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/ftpPass" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="textPassword" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Katalog na dekoderze (domyślnie /media/hdd/e2stream)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/ftpDir" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="Dekoder" android:textColor="#FF4FC3F7" android:textSize="20sp" android:textStyle="bold" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Adres IP dekodera (np. 192.168.1.20)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/host" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <Button android:id="@+id/discover" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Szukaj dekoderów w sieci" android:textSize="18sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Port OpenWebif" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/httpPort" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Port streamingu" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/streamPort" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Użytkownik OpenWebif (puste = bez logowania)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/user" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Hasło OpenWebif" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/pass" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="textPassword" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="Ogólne" android:textColor="#FF4FC3F7" android:textSize="20sp" android:textStyle="bold" />
-        <Button android:id="@+id/bouquets" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Wybierz widoczne bukiety…" android:textSize="18sp" />
-        <TextView android:id="@+id/bouquetsInfo" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:textColor="#FF90A4AE" android:textSize="14sp" />
-        <Button android:id="@+id/keymap" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Mapowanie klawiszy pilota…" android:textSize="18sp" />
-        <CheckBox android:id="@+id/resumeLast" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Po uruchomieniu wróć do ostatniego kanału" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <CheckBox android:id="@+id/invertUpDown" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Odwróć ▲ / ▼ przy zmianie kanału" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Czas wyświetlania paska kanału (s)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/bannerSec" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <CheckBox android:id="@+id/checkUpdates" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Sprawdzaj aktualizacje przy starcie" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="PIN do ustawień (puste = bez blokady; po podaniu odblokowane na 1 min)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/pin" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="numberPassword" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="EPG i ikony kanałów" android:textColor="#FF4FC3F7" android:textSize="20sp" android:textStyle="bold" />
-        <CheckBox android:id="@+id/epgDaily" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Pobieraj EPG codziennie (gdy aplikacja działa lub przy starcie po terminie)" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Godzina pobierania (HH:MM)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/epgHour" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="time" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Ile dni EPG do przodu (1–14)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/epgDays" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <CheckBox android:id="@+id/picons" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Ikony kanałów z dekodera (pobierane razem z EPG)" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Katalog picon na dekoderze (puste = odczytaj z ustawień Enigmy2)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/piconDir" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <Button android:id="@+id/epgNow" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Pobierz EPG i ikony teraz" android:textSize="18sp" />
-        <Button android:id="@+id/piconsReload" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Pobierz ikony od nowa (z katalogu z ustawień Enigmy2)" android:textSize="18sp" />
-        <TextView android:id="@+id/epgInfo" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:textColor="#FF90A4AE" android:textSize="14sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="Odtwarzanie" android:textColor="#FF4FC3F7" android:textSize="20sp" android:textStyle="bold" />
-        <CheckBox android:id="@+id/tunneling" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Tunelowanie wideo (jak w DreamTV)" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <CheckBox android:id="@+id/watchdog" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Automatyczne wznawianie zawieszonego obrazu" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <CheckBox android:id="@+id/dropRestart" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Wznawiaj strumień przy zacinaniu (masowa utrata klatek)" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Zawieszenie po (sekundy bez nowych klatek)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/stallSec" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Bufor startowy (ms, 250–10000; mniej = szybszy start)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/bufferMs" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Odświeżanie ekranu podczas oglądania" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <RadioGroup android:id="@+id/afr" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
-            <RadioButton android:id="@+id/afrOff" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Bez zmian (jak w systemie)" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-            <RadioButton android:id="@+id/afr50" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Zawsze 50 Hz" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-            <RadioButton android:id="@+id/afrAuto" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Automatycznie wg treści (25/50 → 50 Hz)" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        </RadioGroup>
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="Dźwięk" android:textColor="#FF4FC3F7" android:textSize="20sp" android:textStyle="bold" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Preferowany język (ISO 639-2, np. pol,eng)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <EditText android:id="@+id/audioLang" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" android:imeOptions="actionNext" android:singleLine="true" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <CheckBox android:id="@+id/preferAc3" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Preferuj AC3 / E-AC3 (Dolby)" android:textColor="#FFFFFFFF" android:textSize="20sp" />
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Wybór ścieżki dla kanału: przytrzymaj OK → Ścieżka dźwięku (zapamiętywane)" android:textColor="#FFB0BEC5" android:textSize="16sp" />
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:orientation="horizontal">
-            <Button android:id="@+id/save" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Zapisz" android:textSize="20sp" />
-            <Button android:id="@+id/cancel" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Anuluj" android:textSize="20sp" />
-        </LinearLayout>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FF101418"
+    android:orientation="vertical"
+    android:paddingStart="64dp"
+    android:paddingTop="24dp"
+    android:paddingEnd="64dp"
+    android:paddingBottom="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/version"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="#FF4FC3F7"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="▲▼ wybór  •  OK zmień  •  WSTECZ wyjście (zmiany zapisują się od razu)"
+            android:textColor="#FF90A4AE"
+            android:textSize="15sp" />
     </LinearLayout>
-</ScrollView>
+
+    <ListView
+        android:id="@+id/settingsList"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="12dp"
+        android:layout_weight="1"
+        android:divider="@null"
+        android:listSelector="@drawable/list_selector"
+        android:scrollbars="vertical" />
+</LinearLayout>

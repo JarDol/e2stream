@@ -24,26 +24,45 @@ object PinLock {
     /** Wywołuje [onOk], gdy ustawienia są odblokowane lub po poprawnym PIN-ie; [onCancel] przy anulowaniu. */
     fun ask(a: Activity, prefs: Prefs, cancelable: Boolean = true, onCancel: () -> Unit = {}, onOk: () -> Unit) {
         if (isUnlocked(prefs)) { onOk(); return }
+        val pin = prefs.pin
         val et = EditText(a)
         et.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
-        et.hint = "PIN"
-        val dlg = AlertDialog.Builder(a)
+        et.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        et.hint = "PIN (${pin.length} cyfr)"
+        et.textSize = 26f
+        var handled = false
+        lateinit var dlg: AlertDialog
+        fun check() {
+            if (handled) return
+            handled = true
+            dlg.dismiss()
+            if (et.text.toString() == pin) {
+                unlockedUntil = SystemClock.elapsedRealtime() + UNLOCK_MS
+                onOk()
+            } else {
+                android.widget.Toast.makeText(a, "Błędny PIN", android.widget.Toast.LENGTH_SHORT).show()
+                onCancel()
+            }
+        }
+        dlg = AlertDialog.Builder(a)
             .setTitle("Ustawienia zablokowane — podaj PIN")
             .setView(et)
             .setCancelable(cancelable)
-            .setPositiveButton("OK") { _, _ ->
-                if (et.text.toString() == prefs.pin) {
-                    unlockedUntil = SystemClock.elapsedRealtime() + UNLOCK_MS
-                    onOk()
-                } else {
-                    android.widget.Toast.makeText(a, "Błędny PIN", android.widget.Toast.LENGTH_SHORT).show()
-                    onCancel()
-                }
+            .setPositiveButton("OK") { _, _ -> check() }
+            .setNegativeButton("Anuluj") { _, _ -> if (!handled) { handled = true; onCancel() } }
+            .setOnCancelListener { if (!handled) { handled = true; onCancel() } }
+            .create()
+        // po wpisaniu wszystkich cyfr — od razu sprawdź (bez szukania przycisku OK)
+        et.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, af: Int) {}
+            override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                if ((s?.length ?: 0) >= pin.length) et.post { check() }
             }
-            .setNegativeButton("Anuluj") { _, _ -> onCancel() }
-            .setOnCancelListener { onCancel() }
-            .show()
+        })
+        et.setOnEditorActionListener { _, _, _ -> check(); true }
         dlg.setCanceledOnTouchOutside(false)
+        dlg.show()
         et.requestFocus()
     }
 }

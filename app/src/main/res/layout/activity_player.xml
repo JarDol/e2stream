@@ -17,55 +17,143 @@
         app:surface_type="surface_view"
         app:use_controller="false" />
 
+    <!-- Lista kanałów: cały ekran, 3/4 lista, 1/4 bieżąca audycja zaznaczonego kanału -->
     <LinearLayout
         android:id="@+id/panel"
-        android:layout_width="560dp"
+        android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_gravity="start"
         android:layout_margin="24dp"
         android:background="@drawable/overlay_bg"
         android:orientation="vertical"
         android:padding="16dp"
         android:visibility="gone">
 
-        <TextView
-            android:id="@+id/panelTitle"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center"
-            android:paddingBottom="12dp"
-            android:textColor="#FF4FC3F7"
-            android:textSize="20sp"
-            android:textStyle="bold" />
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/panelTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#FF4FC3F7"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="◀ ▶ bukiet   •   OK oglądaj   •   długie OK opis audycji"
+                android:textColor="#FF90A4AE"
+                android:textSize="15sp" />
+        </LinearLayout>
 
         <ListView
             android:id="@+id/list"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1"
+            android:layout_marginTop="8dp"
+            android:layout_weight="3"
             android:choiceMode="singleChoice"
             android:divider="@null"
             android:listSelector="@drawable/list_selector"
             android:scrollbars="vertical" />
 
-        <TextView
+        <View
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:paddingTop="8dp"
-            android:text="◀ ▶ bukiet   •   OK – oglądaj   •   przytrzymaj OK – menu"
-            android:textColor="#FF90A4AE"
-            android:textSize="14sp" />
+            android:layout_height="1dp"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:background="#40FFFFFF" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/infoIcon"
+                android:layout_width="150dp"
+                android:layout_height="90dp"
+                android:layout_marginEnd="20dp"
+                android:scaleType="fitCenter" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/infoTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/infoTime"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="12dp"
+                        android:textColor="#FFB0BEC5"
+                        android:textSize="17sp" />
+
+                    <ProgressBar
+                        android:id="@+id/infoProgress"
+                        style="@android:style/Widget.Material.ProgressBar.Horizontal"
+                        android:layout_width="0dp"
+                        android:layout_height="8dp"
+                        android:layout_weight="1"
+                        android:max="1000"
+                        android:progressDrawable="@drawable/progress_epg" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/infoDesc"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:textColor="#FFB0BEC5"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:id="@+id/infoNext"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#FF90A4AE"
+                    android:textSize="16sp" />
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 
+    <!-- Pasek kanału: pełna szerokość, bez opisu, z czasem i postępem -->
     <LinearLayout
         android:id="@+id/banner"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_marginStart="48dp"
-        android:layout_marginEnd="48dp"
-        android:layout_marginBottom="32dp"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:layout_marginBottom="24dp"
         android:background="@drawable/overlay_bg"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -74,9 +162,9 @@
 
         <ImageView
             android:id="@+id/bannerIcon"
-            android:layout_width="110dp"
-            android:layout_height="66dp"
-            android:layout_marginEnd="16dp"
+            android:layout_width="150dp"
+            android:layout_height="90dp"
+            android:layout_marginEnd="20dp"
             android:scaleType="fitCenter"
             android:visibility="gone" />
 
@@ -86,20 +174,83 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/bannerName"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="#FFFFFFFF"
-            android:textSize="26sp"
-            android:textStyle="bold" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
 
-        <TextView
-            android:id="@+id/bannerNow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="#FFB0BEC5"
-            android:textSize="18sp" />
+                <TextView
+                    android:id="@+id/bannerName"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="#FF4FC3F7"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/bannerClock"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#FFB0BEC5"
+                    android:textSize="20sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/bannerNow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#FFFFFFFF"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/bannerStart"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="12dp"
+                    android:textColor="#FFB0BEC5"
+                    android:textSize="17sp" />
+
+                <ProgressBar
+                    android:id="@+id/bannerProgress"
+                    style="@android:style/Widget.Material.ProgressBar.Horizontal"
+                    android:layout_width="0dp"
+                    android:layout_height="8dp"
+                    android:layout_weight="1"
+                    android:max="1000"
+                    android:progressDrawable="@drawable/progress_epg" />
+
+                <TextView
+                    android:id="@+id/bannerEnd"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:textColor="#FFB0BEC5"
+                    android:textSize="17sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/bannerNext"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="#FF90A4AE"
+                android:textSize="17sp" />
         </LinearLayout>
     </LinearLayout>
 
