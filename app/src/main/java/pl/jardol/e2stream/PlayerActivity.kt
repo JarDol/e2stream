@@ -210,6 +210,7 @@ class PlayerActivity : Activity() {
         }
         ui.removeCallbacks(logTick)
         ui.postDelayed(logTick, 120_000)
+        offerChannelData()
         if (settingsVersion != prefs.version || bouquets.isEmpty()) {
             settingsVersion = prefs.version
             loadBouquets()
@@ -237,6 +238,7 @@ class PlayerActivity : Activity() {
         releasePlayer()
         ui.removeCallbacks(logTick)
         if (AppLog.dirty) uploadLog(false)
+        syncChannels()
     }
 
     override fun onDestroy() {
@@ -1184,8 +1186,44 @@ class PlayerActivity : Activity() {
     private val logTick = object : Runnable {
         override fun run() {
             if (AppLog.dirty) uploadLog(false)
+            syncChannels()
             ui.postDelayed(this, 120_000)
         }
+    }
+
+    /** Wysyła dane kanałów na dekoder, jeśli się zmieniły. */
+    private fun syncChannels() {
+        if (!prefs.channelSync || !prefs.chanDirty || prefs.host.isBlank()) return
+        Thread {
+            try { AppLog.i("dane kanałów wysłane na dekoder: " + ChannelSync.upload(prefs)) }
+            catch (e: Exception) { AppLog.i("dane kanałów: wysyłanie nieudane: $e") }
+        }.start()
+    }
+
+    /** Po skonfigurowaniu dekodera: zaproponuj pobranie danych kanałów zapisanych na dekoderze. */
+    private fun offerChannelData() {
+        if (!prefs.channelSync || prefs.host.isBlank() || prefs.chanAskedHost == prefs.host) return
+        val host = prefs.host
+        Thread {
+            val remote = try { ChannelSync.fetchRemote(prefs) } catch (e: Exception) { null }
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                prefs.chanAskedHost = host
+                if (remote.isNullOrEmpty()) { prefs.chanDirty = true; return@runOnUiThread }
+                AlertDialog.Builder(this)
+                    .setTitle("Dane kanałów na dekoderze")
+                    .setMessage("Na dekoderze są zapisane dane kanałów z innych urządzeń:\n${ChannelSync.describe(remote)}.\n\nPobrać je? Przyspieszy to start kanałów i ustawi zapamiętane ścieżki dźwięku.")
+                    .setPositiveButton("Pobierz") { _, _ ->
+                        Thread {
+                            val r = try { ChannelSync.download(prefs) } catch (e: Exception) { "błąd: ${e.message}" }
+                            AppLog.i("dane kanałów z dekodera: $r")
+                            runOnUiThread { showMessage("Dane kanałów: $r", 6000); prefs.chanDirty = true }
+                        }.start()
+                    }
+                    .setNegativeButton("Nie teraz", null)
+                    .show()
+            }
+        }.start()
     }
 
     private fun uploadLog(manual: Boolean) = Tools.uploadLog(prefs, manual) { showMessage(it, 6000) }

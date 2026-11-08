@@ -72,7 +72,7 @@ class Prefs(ctx: Context) {
 
     /** Ścieżka dźwięku zapamiętana dla kanału: "id|język|mime". */
     fun audioFor(ref: String): String = s("audio_" + OpenWebif.key(ref))
-    fun setAudioFor(ref: String, v: String) = putS("audio_" + OpenWebif.key(ref), v)
+    fun setAudioFor(ref: String, v: String) { putS("audio_" + OpenWebif.key(ref), v); chanDirty = true }
 
     /** Wysyłanie logu na dekoder przez FTP. */
     var logFtp: Boolean
@@ -120,8 +120,31 @@ class Prefs(ctx: Context) {
     fun pmtFor(sid: Int): ByteArray? = s("pmts_$sid").takeIf { it.isNotEmpty() }?.let {
         try { android.util.Base64.decode(it, android.util.Base64.NO_WRAP) } catch (_: Exception) { null }
     }
-    fun setPmtFor(sid: Int, b: ByteArray) =
-        putS("pmts_$sid", android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP))
+    fun setPmtFor(sid: Int, b: ByteArray) {
+        val v = android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP)
+        if (s("pmts_$sid") != v) { putS("pmts_$sid", v); chanDirty = true }
+    }
+
+    /** Dane kanałów do synchronizacji z dekoderem (PMT, ścieżki dźwięku). */
+    fun channelData(): Map<String, String> =
+        sp.all.filter { isChannelKey(it.key) && it.value is String }.mapValues { it.value as String }
+
+    fun putChannelData(k: String, v: String) { if (isChannelKey(k)) putS(k, v) }
+
+    /** Zapisuj dane kanałów na dekoderze (FTP). */
+    var channelSync: Boolean
+        get() = sp.getBoolean("channelSync", true)
+        set(v) = putB("channelSync", v)
+
+    /** Są zmiany do wysłania na dekoder. */
+    var chanDirty: Boolean
+        get() = sp.getBoolean("chanDirty", false)
+        set(v) = putB("chanDirty", v)
+
+    /** Czy już zaproponowano pobranie danych kanałów z dekodera (dla danego adresu). */
+    var chanAskedHost: String
+        get() = s("chanAskedHost")
+        set(v) = putS("chanAskedHost", v)
 
     /** Restart strumienia przy masowej utracie klatek (zacinanie). */
     var dropRestart: Boolean
@@ -242,5 +265,6 @@ class Prefs(ctx: Context) {
 
     companion object {
         const val DEFAULT_FTP_DIR = "/media/hdd/e2stream"
+        fun isChannelKey(k: String) = k.startsWith("pmts_") || k.startsWith("audio_")
     }
 }

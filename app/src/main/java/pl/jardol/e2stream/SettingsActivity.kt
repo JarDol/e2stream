@@ -66,6 +66,9 @@ class SettingsActivity : Activity() {
         Item.Text("FTP — użytkownik", { p.ftpUser }, { p.ftpUser = it.trim().ifEmpty { "root" } }),
         Item.Text("FTP — hasło", { p.ftpPass }, { p.ftpPass = it }, secret = true),
         Item.Text("FTP — katalog na dekoderze", { p.ftpDir }, { p.ftpDir = it.trim().ifEmpty { Prefs.DEFAULT_FTP_DIR } }),
+        Item.Toggle("Zapisuj dane kanałów na dekoderze (PMT, ścieżki dźwięku)", { p.channelSync }, { p.channelSync = it }),
+        Item.Action("Wyślij dane kanałów na dekoder", { ChannelSync.describe(p.channelData()) }) { channelUp() },
+        Item.Action("Pobierz dane kanałów z dekodera", { "${p.ftpDir}/${ChannelSync.FILE}" }) { channelDown() },
 
         Item.Header("Dekoder"),
         Item.Text("Adres IP dekodera", { p.host }, { p.host = it.trim() }, hint = "np. 192.168.1.20"),
@@ -302,6 +305,25 @@ class SettingsActivity : Activity() {
                     }
                     .show()
             }
+        }.start()
+    }
+
+    private fun channelUp() {
+        toast("Wysyłam dane kanałów…")
+        Thread {
+            val r = try { "Wysłano: " + ChannelSync.upload(p) } catch (e: Exception) { "Błąd: ${e.message}" }
+            AppLog.i("dane kanałów: $r")
+            runOnUiThread { toast(r); refresh() }
+        }.start()
+    }
+
+    private fun channelDown() {
+        toast("Pobieram dane kanałów…")
+        Thread {
+            val r = try { ChannelSync.download(p, overwrite = true)?.let { "Dane kanałów: $it" } ?: "Na dekoderze nie ma pliku ${ChannelSync.FILE}" }
+            catch (e: Exception) { "Błąd: ${e.message}" }
+            AppLog.i("dane kanałów: $r")
+            runOnUiThread { toast(r); refresh() }
         }.start()
     }
 
