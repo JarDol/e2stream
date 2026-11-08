@@ -131,7 +131,12 @@ class Prefs(ctx: Context) {
 
     fun putChannelData(k: String, v: String) { if (isChannelKey(k)) putS(k, v) }
 
-    /** Zapisuj dane kanałów na dekoderze (FTP). */
+    /** Nazwa tego odbiornika w synchronizacji (np. „Salon – Philips”). */
+    var deviceName: String
+        get() = s("deviceName", "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+        set(v) = putS("deviceName", v)
+
+    /** Synchronizacja ustawień i danych kanałów z dekoderem (FTP). */
     var channelSync: Boolean
         get() = sp.getBoolean("channelSync", true)
         set(v) = putB("channelSync", v)

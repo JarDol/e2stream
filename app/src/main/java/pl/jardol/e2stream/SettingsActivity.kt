@@ -66,9 +66,13 @@ class SettingsActivity : Activity() {
         Item.Text("FTP — użytkownik", { p.ftpUser }, { p.ftpUser = it.trim().ifEmpty { "root" } }),
         Item.Text("FTP — hasło", { p.ftpPass }, { p.ftpPass = it }, secret = true),
         Item.Text("FTP — katalog na dekoderze", { p.ftpDir }, { p.ftpDir = it.trim().ifEmpty { Prefs.DEFAULT_FTP_DIR } }),
-        Item.Toggle("Zapisuj dane kanałów na dekoderze (PMT, ścieżki dźwięku)", { p.channelSync }, { p.channelSync = it }),
-        Item.Action("Wyślij dane kanałów na dekoder", { ChannelSync.describe(p.channelData()) }) { channelUp() },
-        Item.Action("Pobierz dane kanałów z dekodera", { "${p.ftpDir}/${ChannelSync.FILE}" }) { channelDown() },
+
+        Item.Header("Synchronizacja z dekoderem"),
+        Item.Toggle("Synchronizuj ustawienia i dane kanałów", { p.channelSync }, { p.channelSync = it }),
+        Item.Text("Nazwa tego odbiornika", { p.deviceName }, { p.deviceName = it.trim().ifEmpty { android.os.Build.MODEL } },
+            hint = "np. Salon – Philips"),
+        Item.Action("Synchronizuj teraz", { syncStatus() }) { syncNow() },
+        Item.Action("Przenieś ustawienia z innego odbiornika") { chooseProfile() },
 
         Item.Header("Dekoder"),
         Item.Text("Adres IP dekodera", { p.host }, { p.host = it.trim() }, hint = "np. 192.168.1.20"),
@@ -164,6 +168,7 @@ class SettingsActivity : Activity() {
         super.onPause()
         ui.removeCallbacks(relock)
         if (changed) { p.bump(); changed = false }
+        SyncManager.syncAsync() // zmiany od razu na dekoder
     }
 
     private fun toast(t: String) = Toast.makeText(this, t, Toast.LENGTH_LONG).show()
@@ -308,22 +313,36 @@ class SettingsActivity : Activity() {
         }.start()
     }
 
-    private fun channelUp() {
-        toast("Wysyłam dane kanałów…")
-        Thread {
-            val r = try { "Wysłano: " + ChannelSync.upload(p) } catch (e: Exception) { "Błąd: ${e.message}" }
-            AppLog.i("dane kanałów: $r")
-            runOnUiThread { toast(r); refresh() }
-        }.start()
+    private fun syncStatus(): String {
+        val at = SyncManager.lastSyncAt
+        val last = if (at > 0) SimpleDateFormat("dd.MM HH:mm", Locale("pl")).format(Date(at)) else "nigdy"
+        return if (SyncManager.running) "trwa…" else "ostatnio: $last" + (if (SyncManager.dirty) " • są zmiany" else "")
     }
 
-    private fun channelDown() {
-        toast("Pobieram dane kanałów…")
+    private fun syncNow() {
+        toast("Synchronizuję…")
+        SyncManager.syncAsync { r -> toast("Synchronizacja: $r"); refresh() }
+    }
+
+    private fun chooseProfile() {
+        toast("Pobieram profile odbiorników…")
         Thread {
-            val r = try { ChannelSync.download(p, overwrite = true)?.let { "Dane kanałów: $it" } ?: "Na dekoderze nie ma pliku ${ChannelSync.FILE}" }
-            catch (e: Exception) { "Błąd: ${e.message}" }
-            AppLog.i("dane kanałów: $r")
-            runOnUiThread { toast(r); refresh() }
+            val list = try { SyncManager.profiles(p) } catch (e: Exception) { null }
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                val others = list?.filter { !it.file.contains(SyncManager.deviceId()) }
+                if (others.isNullOrEmpty()) { toast("Brak profili innych odbiorników na dekoderze"); return@runOnUiThread }
+                val fmt = SimpleDateFormat("dd.MM HH:mm", Locale("pl"))
+                AlertDialog.Builder(this).setTitle("Przenieś ustawienia z odbiornika")
+                    .setItems(others.map { "${it.name.ifBlank { it.model }}   (${it.model}, ${fmt.format(Date(it.updated))})" }.toTypedArray()) { _, w ->
+                        val n = SyncManager.restore(others[w])
+                        markChanged("przeniesiono $n ustawień z ${others[w].name}")
+                        toast("Przeniesiono $n ustawień z „${others[w].name}”")
+                        recreate()
+                    }
+                    .setNegativeButton("Anuluj", null)
+                    .show()
+            }
         }.start()
     }
 

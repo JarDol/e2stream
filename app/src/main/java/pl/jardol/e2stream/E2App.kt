@@ -10,6 +10,7 @@ class E2App : Application() {
     override fun onCreate() {
         super.onCreate()
         try { AppLog.init(this, Storage.dir(this, Prefs(this))) } catch (_: Throwable) { AppLog.init(this) }
+        SyncManager.init(this)
         val prev = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             try {

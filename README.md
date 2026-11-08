@@ -22,6 +22,18 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 * Log diagnostyczny: lokalnie w `Android/data/pl.jardol.e2stream/files/e2stream.log`
   i co 2 minuty przez FTP na dekoder (domyślnie `/media/hdd/e2stream/e2stream-<model>.log`).
 
+## Synchronizacja z dekoderem
+
+Na dekoderze w `<katalog FTP>/sync/` (domyślnie `/media/hdd/e2stream/sync/`):
+
+* `common.json` — wartości domyślne dla nowych odbiorników i wspólne PMT kanałów,
+* `device-<id>.json` — ustawienia i wybrane ścieżki dźwięku każdego odbiornika (z nazwą i modelem).
+
+Nowy odbiornik przy pierwszym uruchomieniu bierze swój profil (reinstalacja) albo wartości domyślne.
+Zmiany zapisują się w pliku odbiornika; klucz nieobecny w części wspólnej jest tam dopisywany jako domyślny.
+Synchronizacja działa w tle: przy starcie, kilka sekund po zmianie, co 2 minuty i przy wyjściu.
+Ustawienia → Synchronizacja: nazwa odbiornika, synchronizuj teraz, przenieś ustawienia z innego odbiornika.
+
 ## Pilot
 
 | Klawisz | Działanie (domyślnie — można zmienić: Ustawienia → Mapowanie klawiszy) |
