@@ -148,10 +148,20 @@ class SettingsActivity : Activity() {
                 " • zapisanych kanałów: ${store.count()}"
         }
         epgStatus()
-        findViewById<Button>(R.id.epgNow).setOnClickListener {
+        fun sync() {
             EpgSync.run(applicationContext, p, store, { msg -> runOnUiThread { epgInfo.text = msg } }) { r ->
-                runOnUiThread { toast(r); epgStatus() }
+                runOnUiThread {
+                    toast(r); epgStatus()
+                    if (piconDir.text.isBlank()) piconDir.setText(p.piconDir) // katalog wykryty z ustawień Enigmy2
+                }
             }
+        }
+        findViewById<Button>(R.id.epgNow).setOnClickListener { sync() }
+        findViewById<Button>(R.id.piconsReload).setOnClickListener {
+            Picons.clear(this)
+            p.picons = true
+            picons.isChecked = true
+            sync()
         }
         findViewById<Button>(R.id.sendLog).setOnClickListener { Tools.uploadLog(p, true) { toast(it) } }
         findViewById<Button>(R.id.sendDumps).setOnClickListener { Tools.uploadDumps(this, p) { toast(it) } }

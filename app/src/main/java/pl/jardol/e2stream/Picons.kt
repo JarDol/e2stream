@@ -137,72 +137,107 @@ object Picons {
         } finally { c.disconnect() }
     } catch (_: Exception) { null }
 
-    /** Pobiera brakujące ikony; zwraca liczbę ikon dostępnych po pobraniu. */
-    fun fetch(ctx: Context, prefs: Prefs, chans: List<Channel>, progress: (String) -> Unit): Int {
-        val d = dir(ctx)
-        val api = OpenWebif(prefs)
-        val auth = api.authHeader()
-        val todo = chans.filter { !File(d, localName(it.ref)).exists() }
-        var ok = chans.size - todo.size
-        var httpWorks: Boolean? = null
+    /** Katalog picon z ustawień Enigmy2 (/etc/enigma2/settings), np. config.usage.picon_dir=/media/hdd/picon. */
+    fun detectDir(prefs: Prefs): String? = try {
+        FtpSession(prefs.host, 21, prefs.ftpUser, prefs.ftpPass).use { ftp ->
+            val st = ftp.retr("/etc/enigma2/settings")?.toString(Charsets.UTF_8) ?: return null
+            st.lines().map { it.trim() }
+                .filter { it.contains("picon", true) && it.contains('=') }
+                .map { it.substringAfter('=').trim().trimEnd('/') }
+                .firstOrNull { it.startsWith("/") && it.length > 1 }
+        }
+    } catch (e: Exception) {
+        AppLog.i("ikony: nie udało się odczytać ustawień Enigmy2 przez FTP: $e"); null
+    }
+
+    /** Usuwa zapisane ikony (do pobrania od nowa). */
+    fun clear(ctx: Context) {
+        dir(ctx).listFiles()?.forEach { it.delete() }
+        synchronized(missing) { missing.clear() }
+        mem.evictAll()
+    }
+
+    /** FTP: lista katalogu i dopasowanie po referencji (dokładne, potem luźne SID_TSID_ONID_NS). */
+    private fun ftpStage(prefs: Prefs, d: File, chans: List<Channel>, dirs: List<String>, progress: (String) -> Unit): List<Channel> {
+        if (chans.isEmpty()) return chans
         val left = ArrayList<Channel>()
-        for ((i, c) in todo.withIndex()) {
-            if (httpWorks == false) { left.add(c); continue }
+        try {
+            FtpSession(prefs.host, 21, prefs.ftpUser, prefs.ftpPass).use { ftp ->
+                var found: Pair<String, Set<String>>? = null
+                for (pd in dirs.distinct()) {
+                    val names = ftp.list(pd)?.toSet() ?: continue
+                    if (names.any { it.endsWith(".png", true) }) { found = pd to names; break }
+                }
+                if (found == null) {
+                    AppLog.i("ikony: brak plików .png w katalogach: ${dirs.distinct().joinToString()}")
+                    return chans
+                }
+                val (pd, names) = found
+                AppLog.i("ikony: katalog picon na dekoderze: $pd (${names.size} plików)")
+                val bySvc = HashMap<String, String>()
+                val byName = HashMap<String, String>()
+                val upper = HashMap<String, String>()
+                for (n in names) {
+                    if (!n.endsWith(".png", true)) continue
+                    val base = n.substring(0, n.length - 4)
+                    upper.putIfAbsent(n.uppercase(), n)
+                    val f = base.split('_')
+                    if (f.size >= 7) bySvc.putIfAbsent(f.subList(3, 7).joinToString("_").uppercase(), n)
+                    byName.putIfAbsent(base.lowercase(), n)
+                }
+                for ((i, c) in chans.withIndex()) {
+                    val rf = c.ref.trimEnd(':').split(':')
+                    val svc = if (rf.size >= 7) rf.subList(3, 7).joinToString("_").uppercase() else ""
+                    val sn = snp(c.name)
+                    val n = candidates(c).firstNotNullOfOrNull { upper[it.uppercase()] }
+                        ?: bySvc[svc]
+                        ?: byName[sn] ?: byName[sn.removeSuffix("hd")] ?: byName[sn + "hd"]
+                    val data = n?.let { ftp.retr("$pd/$it") }
+                    if (data != null && data.isNotEmpty()) File(d, localName(c.ref)).writeBytes(data) else left.add(c)
+                    if (i % 20 == 0) progress("Ikony (FTP): $i/${chans.size}")
+                }
+            }
+        } catch (e: Exception) {
+            AppLog.i("ikony: FTP nieudane: $e")
+            return chans.filter { !File(d, localName(it.ref)).exists() }
+        }
+        return left
+    }
+
+    /** OpenWebif /picon/<plik>. */
+    private fun httpStage(prefs: Prefs, d: File, chans: List<Channel>, progress: (String) -> Unit): List<Channel> {
+        if (chans.isEmpty()) return chans
+        val auth = OpenWebif(prefs).authHeader()
+        val left = ArrayList<Channel>()
+        var fails = 0
+        for ((i, c) in chans.withIndex()) {
+            if (fails >= 5 && left.size == i) { left.addAll(chans.subList(i, chans.size)); break } // OpenWebif nie podaje ikon
             var got: ByteArray? = null
             for (n in candidates(c)) {
                 got = httpGet("http://${prefs.host}:${prefs.httpPort}/picon/$n", auth)
                 if (got != null) break
             }
-            if (got != null) {
-                File(d, localName(c.ref)).writeBytes(got); ok++; httpWorks = true
-            } else {
-                left.add(c)
-                if (httpWorks == null && i >= 4) httpWorks = false // 5 porażek z rzędu — przejdź na FTP
-            }
-            if (i % 20 == 0) progress("Ikony: $i/${todo.size}")
+            if (got != null) { File(d, localName(c.ref)).writeBytes(got); fails = -1000 } else { left.add(c); fails++ }
+            if (i % 20 == 0) progress("Ikony: $i/${chans.size}")
         }
+        return left
+    }
+
+    /** Pobiera brakujące ikony; zwraca liczbę ikon dostępnych po pobraniu. */
+    fun fetch(ctx: Context, prefs: Prefs, chans: List<Channel>, progress: (String) -> Unit): Int {
+        val d = dir(ctx)
+        var left: List<Channel> = chans.filter { !File(d, localName(it.ref)).exists() }
         if (left.isNotEmpty()) {
-            try {
-                FtpSession(prefs.host, 21, prefs.ftpUser, prefs.ftpPass).use { ftp ->
-                    val dirs = (listOf(prefs.piconDir.trimEnd('/')).filter { it.isNotBlank() } + FTP_DIRS).distinct()
-                    var found: Pair<String, Set<String>>? = null
-                    for (pd in dirs) {
-                        val names = ftp.list(pd)?.toSet() ?: continue
-                        if (names.any { it.endsWith(".png") }) { found = pd to names; break }
-                    }
-                    if (found == null) {
-                        AppLog.i("ikony: nie znaleziono katalogu picon na dekoderze (sprawdzono: ${dirs.joinToString()})")
-                    } else {
-                        val (pd, names) = found
-                        AppLog.i("ikony: katalog picon na dekoderze: $pd (${names.size} plików)")
-                        // dopasowanie luźne: SID_TSID_ONID_NAMESPACE bez względu na typ usługi i wielkość liter
-                        val bySvc = HashMap<String, String>()
-                        val byName = HashMap<String, String>()
-                        for (n in names) {
-                            if (!n.endsWith(".png", true)) continue
-                            val base = n.substring(0, n.length - 4)
-                            val f = base.split('_')
-                            if (f.size >= 7) bySvc.putIfAbsent(f.subList(3, 7).joinToString("_").uppercase(), n)
-                            byName.putIfAbsent(base.lowercase(), n)
-                        }
-                        for ((i, c) in left.withIndex()) {
-                            val rf = c.ref.trimEnd(':').split(':')
-                            val svc = if (rf.size >= 7) rf.subList(3, 7).joinToString("_").uppercase() else ""
-                            val sn = snp(c.name)
-                            val n = candidates(c).firstOrNull { it in names }
-                                ?: bySvc[svc]
-                                ?: byName[sn] ?: byName[sn.removeSuffix("hd")] ?: byName[sn + "hd"]
-                                ?: continue
-                            val data = ftp.retr("$pd/$n") ?: continue
-                            File(d, localName(c.ref)).writeBytes(data)
-                            ok++
-                            if (i % 20 == 0) progress("Ikony (FTP): $i/${left.size}")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                AppLog.i("ikony: FTP nieudane: $e")
+            val cfg = detectDir(prefs)
+            if (cfg != null) {
+                AppLog.i("ikony: katalog picon z ustawień Enigmy2: $cfg")
+                if (prefs.piconDir.isBlank()) prefs.piconDir = cfg
             }
+            val preferred = listOfNotNull(prefs.piconDir.trimEnd('/').takeIf { it.isNotBlank() }, cfg)
+            // 1) katalog z ustawień (Enigma2 / ręczny), 2) OpenWebif, 3) typowe katalogi
+            if (preferred.isNotEmpty()) left = ftpStage(prefs, d, left, preferred, progress)
+            left = httpStage(prefs, d, left, progress)
+            if (left.isNotEmpty()) left = ftpStage(prefs, d, left, FTP_DIRS, progress)
         }
         val none = chans.filter { !File(d, localName(it.ref)).exists() }
         if (none.isNotEmpty()) {
@@ -211,6 +246,6 @@ object Picons {
         }
         synchronized(missing) { missing.clear() }
         mem.evictAll()
-        return ok
+        return chans.size - none.size
     }
 }
