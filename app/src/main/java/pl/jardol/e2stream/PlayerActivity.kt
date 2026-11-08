@@ -138,6 +138,12 @@ class PlayerActivity : Activity() {
 
         list.adapter = adapter
         list.setOnItemClickListener { _, _, pos, _ -> onPanelPick(pos) }
+        // długie OK na liście: opis bieżącej audycji zaznaczonego kanału
+        list.isLongClickable = true
+        list.setOnItemLongClickListener { _, _, pos, _ ->
+            panelList.getOrNull(pos)?.let { epg.showCurrentEvent(it) }
+            true
+        }
 
         val crash = prefs.lastCrash
         if (crash.isNotEmpty()) {
@@ -638,6 +644,11 @@ class PlayerActivity : Activity() {
         val l = panelList
         if (pos !in l.indices) return
         hidePanel()
+        // ten sam, już odtwarzany kanał — nie uruchamiaj strumienia od nowa
+        if (panelBouquet == playBouquet && pos == playIndex && currentUrl != null) {
+            playList.getOrNull(playIndex)?.let { showBanner(it) }
+            return
+        }
         playIn(panelBouquet, l, pos)
     }
 

@@ -26,7 +26,7 @@ Odtwarzacz strumieni z dekodera Enigma2 (OpenPLi / OpenWebif) dla Android TV.
 
 | Klawisz | Działanie (domyślnie — można zmienić: Ustawienia → Mapowanie klawiszy) |
 |---|---|
-| OK | lista kanałów (◀ ▶ zmiana bukietu) |
+| OK | lista kanałów (◀ ▶ zmiana bukietu; długie OK na kanale — opis bieżącej audycji) |
 | przytrzymanie OK | menu: EPG wydarzenia, EPG kanału, Multi EPG, Szukaj w EPG, Ścieżka dźwięku, Ustawienia |
 | ▲ / ▼, CH+ / CH− | następny / poprzedni kanał |
 | ◀ | EPG kanału |

@@ -11,8 +11,8 @@ android {
         applicationId = "pl.jardol.e2stream"
         minSdk = 21
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.5.3"
+        versionCode = 17
+        versionName = "0.5.4"
     }
 
     // Stały klucz w repo => każda kolejna wersja instaluje się jako aktualizacja.
