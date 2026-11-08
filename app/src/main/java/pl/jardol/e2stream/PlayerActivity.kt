@@ -237,11 +237,13 @@ class PlayerActivity : Activity() {
         val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
 
         val start = prefs.bufferMs.coerceIn(250, 10_000)
-        val minBuf = maxOf(start * 2, 2000)
+        val rebuffer = maxOf(start, 4000)
+        // ExoPlayer wymaga: minBuffer ≥ bufor startowy i ≥ bufor po niedoborze
+        val minBuf = maxOf(start * 2, rebuffer, 2000)
         val load = DefaultLoadControl.Builder()
             // Enigma2 wysyła dane paczkami (~0,5 MB): na kanałach SD przerwy między paczkami
             // to nawet 3–4 s, więc po niedoborze bufora czekamy na zapas, który je pokryje.
-            .setBufferDurationsMs(minBuf, maxOf(minBuf, 15_000), start, maxOf(start, 4000))
+            .setBufferDurationsMs(minBuf, maxOf(minBuf, 15_000), start, rebuffer)
             .build()
 
         val p = ExoPlayer.Builder(this, renderers)
