@@ -175,8 +175,24 @@ object Picons {
                     } else {
                         val (pd, names) = found
                         AppLog.i("ikony: katalog picon na dekoderze: $pd (${names.size} plików)")
+                        // dopasowanie luźne: SID_TSID_ONID_NAMESPACE bez względu na typ usługi i wielkość liter
+                        val bySvc = HashMap<String, String>()
+                        val byName = HashMap<String, String>()
+                        for (n in names) {
+                            if (!n.endsWith(".png", true)) continue
+                            val base = n.substring(0, n.length - 4)
+                            val f = base.split('_')
+                            if (f.size >= 7) bySvc.putIfAbsent(f.subList(3, 7).joinToString("_").uppercase(), n)
+                            byName.putIfAbsent(base.lowercase(), n)
+                        }
                         for ((i, c) in left.withIndex()) {
-                            val n = candidates(c).firstOrNull { it in names } ?: continue
+                            val rf = c.ref.trimEnd(':').split(':')
+                            val svc = if (rf.size >= 7) rf.subList(3, 7).joinToString("_").uppercase() else ""
+                            val sn = snp(c.name)
+                            val n = candidates(c).firstOrNull { it in names }
+                                ?: bySvc[svc]
+                                ?: byName[sn] ?: byName[sn.removeSuffix("hd")] ?: byName[sn + "hd"]
+                                ?: continue
                             val data = ftp.retr("$pd/$n") ?: continue
                             File(d, localName(c.ref)).writeBytes(data)
                             ok++
@@ -187,6 +203,11 @@ object Picons {
             } catch (e: Exception) {
                 AppLog.i("ikony: FTP nieudane: $e")
             }
+        }
+        val none = chans.filter { !File(d, localName(it.ref)).exists() }
+        if (none.isNotEmpty()) {
+            AppLog.i("ikony: brak dla ${none.size} kanałów: " +
+                none.take(40).joinToString("; ") { "${it.name} (${candidates(it).first()})" })
         }
         synchronized(missing) { missing.clear() }
         mem.evictAll()
