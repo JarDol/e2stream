@@ -162,6 +162,11 @@ class Prefs(ctx: Context) {
         get() = s("piconDir")
         set(v) = putS("piconDir", v)
 
+    /** Ostatnia awaria aplikacji (pełny opis) — pokazywana raz przy następnym starcie. */
+    var lastCrash: String
+        get() = s("lastCrash")
+        set(v) = sp.edit().putString("lastCrash", v).commit().let { }
+
     /** Statystyki widoczne na ekranie. */
     var showStats: Boolean
         get() = sp.getBoolean("showStats", false)

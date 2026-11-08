@@ -90,6 +90,7 @@ class PlayerActivity : Activity() {
     private var pendingReason = ""
     private var settingsVersion = -1
     private var settingsShown = false
+    private var safeMode = false
     private var numberBuffer = ""
     private var suppressOkUp = false
     private var lastBackAt = 0L
@@ -137,10 +138,33 @@ class PlayerActivity : Activity() {
 
         list.adapter = adapter
         list.setOnItemClickListener { _, _, pos, _ -> onPanelPick(pos) }
+
+        val crash = prefs.lastCrash
+        if (crash.isNotEmpty()) {
+            prefs.lastCrash = ""
+            safeMode = true
+            AppLog.i("start w trybie bezpiecznym po awarii")
+            Tools.uploadLog(prefs, true) { }
+            AlertDialog.Builder(this)
+                .setTitle("Poprzednie uruchomienie zakończyło się błędem")
+                .setMessage(crash.lines().take(14).joinToString("\n") +
+                    "\n\nLog z pełnym opisem wysłano na dekoder (${prefs.ftpDir}/${Tools.logName()}).")
+                .setPositiveButton("Kontynuuj") { _, _ -> safeMode = false; settingsVersion = -1; startUp() }
+                .setNeutralButton("Ustawienia") { _, _ -> openSettings() }
+                .setNegativeButton("Zamknij") { _, _ -> finish() }
+                .setCancelable(false)
+                .show()
+        }
     }
 
     override fun onStart() {
         super.onStart()
+        if (safeMode) return
+        startUp()
+    }
+
+    private fun startUp() {
+        AppLog.i("start: host=${prefs.host} ${Build.MANUFACTURER} ${Build.MODEL} API ${Build.VERSION.SDK_INT}")
         if (prefs.host.isBlank()) {
             if (settingsShown) { finish(); return }
             settingsShown = true
