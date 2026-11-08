@@ -29,8 +29,9 @@ class EpgStore(ctx: Context) {
                 val o = arr.optJSONObject(i) ?: continue
                 out.add(
                     EpgEvent(
-                        o.optInt("i"), o.optLong("b"), o.optLong("d"), o.optString("t"),
-                        o.optString("s"), o.optString("l"), o.optString("r"), o.optString("n"),
+                        o.optInt("i"), o.optLong("b"), o.optLong("d"), OpenWebif.unescape(o.optString("t")),
+                        OpenWebif.unescape(o.optString("s")), OpenWebif.unescape(o.optString("l")),
+                        o.optString("r"), OpenWebif.unescape(o.optString("n")),
                     )
                 )
             }

@@ -33,6 +33,29 @@ class OpenWebif(private val p: Prefs) {
     companion object {
         /** Klucz do porównywania referencji serwisów (różne formy końcówki ':'). */
         fun key(ref: String) = ref.trim().trimEnd(':').uppercase()
+
+        private val ENTITY = Regex("&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);")
+        private val NAMED = mapOf(
+            "quot" to "\"", "amp" to "&", "lt" to "<", "gt" to ">", "apos" to "'", "nbsp" to " ",
+            "ndash" to "–", "mdash" to "—", "hellip" to "…", "bdquo" to "„", "rdquo" to "”", "ldquo" to "“",
+        )
+
+        /** Dekoduje encje HTML (&quot; &amp; &#39; …), które OpenWebif zostawia w tekstach EPG. */
+        fun unescape(t: String): String {
+            if (!t.contains('&')) return t
+            var out = t
+            repeat(2) { // także podwójnie zakodowane (&amp;quot;)
+                out = ENTITY.replace(out) { m ->
+                    val e = m.groupValues[1]
+                    when {
+                        e.startsWith("#x") || e.startsWith("#X") -> e.substring(2).toIntOrNull(16)?.let { String(Character.toChars(it)) }
+                        e.startsWith("#") -> e.substring(1).toIntOrNull()?.let { String(Character.toChars(it)) }
+                        else -> NAMED[e]
+                    } ?: m.value
+                }
+            }
+            return out
+        }
     }
 
     fun authHeader(): String? {
@@ -66,7 +89,7 @@ class OpenWebif(private val p: Prefs) {
             val o = arr.optJSONObject(i) ?: continue
             val ref = o.optString("servicereference")
             if (ref.isEmpty()) continue
-            out.add(Bouquet(o.optString("servicename", ref).trim(), ref))
+            out.add(Bouquet(unescape(o.optString("servicename", ref)).trim(), ref))
         }
         return out
     }
@@ -88,7 +111,7 @@ class OpenWebif(private val p: Prefs) {
             val pos = o.optInt("pos", 0)
             // usługa z alternatywami (flaga 128) — strumieniujemy pierwszą alternatywę
             val playRef = if ((flags and 128) != 0) resolveAlternative(ref) ?: ref else ref
-            out.add(Channel(if (pos > 0) pos else n, o.optString("servicename", ref).trim(), playRef))
+            out.add(Channel(if (pos > 0) pos else n, unescape(o.optString("servicename", ref)).trim(), playRef))
         }
         return out
     }
@@ -112,7 +135,7 @@ class OpenWebif(private val p: Prefs) {
             val o = arr.optJSONObject(i) ?: continue
             val t = o.optString("title")
             val s = o.optString("sref")
-            if (t.isNotBlank() && s.isNotBlank()) m[key(s)] = t
+            if (t.isNotBlank() && s.isNotBlank()) m[key(s)] = unescape(t)
         }
         return m
     }
@@ -121,7 +144,7 @@ class OpenWebif(private val p: Prefs) {
     fun serviceNow(ref: String): String? {
         val arr = get("/api/epgservicenow?sRef=" + enc(ref)).optJSONArray("events") ?: return null
         val o = arr.optJSONObject(0) ?: return null
-        return o.optString("title").takeIf { it.isNotBlank() }
+        return o.optString("title").takeIf { it.isNotBlank() }?.let { unescape(it) }
     }
 
     private fun events(js: JSONObject): List<EpgEvent> {
@@ -136,11 +159,11 @@ class OpenWebif(private val p: Prefs) {
                     id = o.optInt("id"),
                     begin = o.optLong("begin_timestamp"),
                     duration = o.optLong("duration_sec"),
-                    title = title,
-                    shortDesc = o.optString("shortdesc").takeUnless { it == "None" } ?: "",
-                    longDesc = o.optString("longdesc").takeUnless { it == "None" } ?: "",
+                    title = unescape(title),
+                    shortDesc = unescape(o.optString("shortdesc").takeUnless { it == "None" } ?: ""),
+                    longDesc = unescape(o.optString("longdesc").takeUnless { it == "None" } ?: ""),
                     sref = o.optString("sref"),
-                    sname = o.optString("sname"),
+                    sname = unescape(o.optString("sname")),
                 )
             )
         }
