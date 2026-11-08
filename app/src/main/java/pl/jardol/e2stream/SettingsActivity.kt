@@ -79,6 +79,9 @@ class SettingsActivity : Activity() {
         Item.Action("Widoczne bukiety", { if (p.hiddenBouquets.isEmpty()) "wszystkie" else "ukryte: ${p.hiddenBouquets.size}" }) { chooseBouquets() },
         Item.Action("Mapowanie klawiszy pilota") { showKeyMap() },
         Item.Toggle("Po uruchomieniu wróć do ostatniego kanału", { p.resumeLast }, { p.resumeLast = it }),
+        Item.Action("Po uruchomieniu przełącz na kanał", {
+            if (p.resumeLast) "nieaktywne (włączony powrót do ostatniego)" else p.startChannelName.ifBlank { "pierwszy kanał" }
+        }) { if (p.resumeLast) toast("Najpierw wyłącz „Po uruchomieniu wróć do ostatniego kanału”") else chooseStartChannel() },
         Item.Toggle("Odwróć ▲ / ▼ przy zmianie kanału", { p.invertUpDown }, { p.invertUpDown = it }),
         num("Czas paska kanału (s)", { p.bannerSec }, { p.bannerSec = it }, 1..30),
         Item.Toggle("Sprawdzaj aktualizacje przy starcie", { p.checkUpdates }, { p.checkUpdates = it }),
@@ -261,6 +264,42 @@ class SettingsActivity : Activity() {
                         markChanged("bukiety: ukryte ${p.hiddenBouquets.size}")
                     }
                     .setNegativeButton("Anuluj", null)
+                    .show()
+            }
+        }.start()
+    }
+
+    /** Wybór kanału startowego: bukiet → kanał. */
+    private fun chooseStartChannel() {
+        toast("Pobieram bukiety…")
+        Thread {
+            val api = OpenWebif(p)
+            val bq = try {
+                val all = api.bouquets(); val hidden = p.hiddenBouquets
+                all.filter { it.ref !in hidden }.ifEmpty { all }
+            } catch (e: Exception) { null }
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                if (bq.isNullOrEmpty()) { toast("Nie udało się pobrać bukietów"); return@runOnUiThread }
+                AlertDialog.Builder(this).setTitle("Kanał startowy — bukiet")
+                    .setItems(bq.map { it.name }.toTypedArray()) { _, bi ->
+                        Thread {
+                            val ch = try { api.channels(bq[bi]) } catch (e: Exception) { emptyList() }
+                            runOnUiThread {
+                                if (ch.isEmpty()) { toast("Pusty bukiet"); return@runOnUiThread }
+                                val cur = ch.indexOfFirst { OpenWebif.key(it.ref) == OpenWebif.key(p.startChannel) }
+                                AlertDialog.Builder(this).setTitle("Kanał startowy — ${bq[bi].name}")
+                                    .setSingleChoiceItems(ch.map { "${it.num}  ${it.name}" }.toTypedArray(), cur) { d, ci ->
+                                        p.startBouquet = bq[bi].ref
+                                        p.startChannel = ch[ci].ref
+                                        p.startChannelName = "${ch[ci].name} (${bq[bi].name})"
+                                        d.dismiss()
+                                        markChanged("kanał startowy = ${p.startChannelName}")
+                                    }
+                                    .show()
+                            }
+                        }.start()
+                    }
                     .show()
             }
         }.start()

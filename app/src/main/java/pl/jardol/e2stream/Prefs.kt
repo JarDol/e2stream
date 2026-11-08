@@ -203,6 +203,19 @@ class Prefs(ctx: Context) {
         get() = sp.getBoolean("checkUpdates", true)
         set(v) = putB("checkUpdates", v)
 
+    /** Kanał startowy (gdy nie wracamy do ostatniego). */
+    var startBouquet: String
+        get() = s("startBouquet")
+        set(v) = putS("startBouquet", v)
+
+    var startChannel: String
+        get() = s("startChannel")
+        set(v) = putS("startChannel", v)
+
+    var startChannelName: String
+        get() = s("startChannelName")
+        set(v) = putS("startChannelName", v)
+
     var lastBouquet: String
         get() = s("lastBouquet")
         set(v) = putS("lastBouquet", v)

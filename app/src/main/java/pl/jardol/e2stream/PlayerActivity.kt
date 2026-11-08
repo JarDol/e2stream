@@ -562,8 +562,10 @@ class PlayerActivity : Activity() {
                 val hidden = prefs.hiddenBouquets
                 val bq = all.filter { it.ref !in hidden }.ifEmpty { all }
                 AppLog.i("bukiety: ${bq.size} z ${all.size} widocznych")
-                val bi = if (!prefs.resumeLast) 0
-                else bq.indexOfFirst { it.ref == prefs.lastBouquet }.let { if (it < 0) 0 else it }
+                // start: ostatni kanał albo wybrany kanał startowy
+                val wantB = if (prefs.resumeLast) prefs.lastBouquet else prefs.startBouquet
+                val wantC = if (prefs.resumeLast) prefs.lastChannel else prefs.startChannel
+                val bi = bq.indexOfFirst { it.ref == wantB }.let { if (it < 0) 0 else it }
                 val ch = if (bq.isEmpty()) emptyList() else api.channels(bq[bi])
                 runOnUiThread {
                     bouquets = bq
@@ -572,8 +574,7 @@ class PlayerActivity : Activity() {
                         return@runOnUiThread
                     }
                     message.visibility = View.GONE
-                    val ci = if (!prefs.resumeLast) 0
-                    else ch.indexOfFirst { it.ref == prefs.lastChannel }.let { if (it < 0) 0 else it }
+                    val ci = ch.indexOfFirst { OpenWebif.key(it.ref) == OpenWebif.key(wantC) }.let { if (it < 0) 0 else it }
                     playIndex = -1
                     if (ch.isNotEmpty()) playIn(bi, ch, ci)
                 }
