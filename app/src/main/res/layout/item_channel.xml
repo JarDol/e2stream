@@ -3,25 +3,26 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center_vertical"
+    android:minHeight="72dp"
     android:orientation="horizontal"
-    android:paddingStart="8dp"
+    android:paddingStart="12dp"
     android:paddingTop="6dp"
-    android:paddingEnd="8dp"
+    android:paddingEnd="20dp"
     android:paddingBottom="6dp">
 
     <ImageView
         android:id="@+id/icon"
-        android:layout_width="64dp"
-        android:layout_height="38dp"
-        android:layout_marginEnd="10dp"
+        android:layout_width="96dp"
+        android:layout_height="56dp"
+        android:layout_marginEnd="14dp"
         android:scaleType="fitCenter" />
 
     <TextView
         android:id="@+id/num"
         android:layout_width="56dp"
         android:layout_height="wrap_content"
-        android:textColor="#FF90A4AE"
-        android:textSize="18sp" />
+        android:textColor="#FFCFD8DC"
+        android:textSize="22sp" />
 
     <LinearLayout
         android:layout_width="0dp"
@@ -36,7 +37,8 @@
             android:ellipsize="end"
             android:maxLines="1"
             android:textColor="#FFFFFFFF"
-            android:textSize="20sp" />
+            android:textSize="25sp"
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/now"
@@ -44,7 +46,31 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="1"
-            android:textColor="#FF90A4AE"
-            android:textSize="14sp" />
+            android:textColor="#FFB0BEC5"
+            android:textSize="20sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="340dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:gravity="end"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#FFB0BEC5"
+            android:textSize="20sp" />
+
+        <ProgressBar
+            android:id="@+id/bar"
+            style="@android:style/Widget.Material.ProgressBar.Horizontal"
+            android:layout_width="match_parent"
+            android:layout_height="8dp"
+            android:layout_marginTop="6dp"
+            android:max="1000"
+            android:progressDrawable="@drawable/progress_epg" />
     </LinearLayout>
 </LinearLayout>

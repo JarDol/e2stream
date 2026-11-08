@@ -107,20 +107,73 @@ class EpgUi(
         val ref = ev.sref.ifBlank { ch?.ref ?: "" }
         val name = ev.sname.ifBlank { ch?.name ?: "" }
         val running = ev.begin <= now() && ev.end > now()
-        val msg = buildString {
+        val head = buildString {
             append("${d(ev.begin)}  ${t(ev.begin)}–${t(ev.end)}  (${ev.duration / 60} min)")
             append(progress(ev))
             if (name.isNotBlank()) append("\n$name")
-            if (ev.shortDesc.isNotBlank()) append("\n\n${ev.shortDesc}")
-            if (ev.longDesc.isNotBlank() && ev.longDesc != ev.shortDesc) append("\n\n${ev.longDesc}")
         }
-        val b = AlertDialog.Builder(a).setTitle(ev.title).setMessage(msg)
+        val body = buildString {
+            if (ev.shortDesc.isNotBlank()) append(ev.shortDesc)
+            if (ev.longDesc.isNotBlank() && ev.longDesc != ev.shortDesc) {
+                if (isNotEmpty()) append("\n\n")
+                append(ev.longDesc)
+            }
+            if (isEmpty()) append("Brak opisu")
+        }
+        val dp = a.resources.displayMetrics.density
+        fun px(v: Int) = (v * dp).toInt()
+
+        // własny układ: przewijany opis + rząd przycisków zawsze widoczny w całości
+        val root = android.widget.LinearLayout(a).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(px(24), px(8), px(24), px(16))
+        }
+        root.addView(TextView(a).apply {
+            text = head
+            textSize = 19f
+            setTextColor(0xFFB0BEC5.toInt())
+        })
+        val scroll = android.widget.ScrollView(a).apply { isFocusable = true; isFocusableInTouchMode = false }
+        scroll.addView(TextView(a).apply {
+            text = body
+            textSize = 20f
+            setTextColor(0xFFFFFFFF.toInt())
+            setLineSpacing(px(3).toFloat(), 1f)
+            setPadding(0, px(12), 0, px(12))
+        })
+        root.addView(scroll, android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        val bar = android.widget.LinearLayout(a).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.END
+            setPadding(0, px(12), 0, 0)
+        }
+        root.addView(bar, android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.MATCH_PARENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        val dlg = AlertDialog.Builder(a).setTitle(ev.title).setView(root).create()
+        fun button(label: String, onClick: () -> Unit): android.widget.Button {
+            val btn = android.widget.Button(a)
+            btn.text = label
+            btn.textSize = 18f
+            btn.setPadding(px(24), px(10), px(24), px(10))
+            btn.setOnClickListener { dlg.dismiss(); onClick() }
+            val lp = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.marginStart = px(12)
+            bar.addView(btn, lp)
+            return btn
+        }
+        var first: android.widget.Button? = null
         if (ref.isNotBlank()) {
-            b.setPositiveButton(if (running) "Oglądaj" else "Przełącz na kanał") { _, _ -> host.zapTo(ref) }
-            if (ev.end > now()) b.setNeutralButton("Nagraj na dekoderze") { _, _ -> record(ref, ev) }
+            first = button(if (running) "Oglądaj" else "Przełącz na kanał") { host.zapTo(ref) }
+            if (ev.end > now()) button("Nagraj na dekoderze") { record(ref, ev) }
         }
-        b.setNegativeButton("Zamknij", null)
-        b.show()
+        val close = button("Zamknij") { }
+        dlg.show()
+        val dm = a.resources.displayMetrics
+        dlg.window?.setLayout((dm.widthPixels * 0.8).toInt(), (dm.heightPixels * 0.85).toInt())
+        (first ?: close).requestFocus()
     }
 
     private fun record(ref: String, ev: EpgEvent) {

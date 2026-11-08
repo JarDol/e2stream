@@ -25,6 +25,10 @@ data class EpgEvent(
 class Channel(val num: Int, val name: String, val ref: String) {
     @Volatile
     var now: String = ""
+    @Volatile
+    var nowBegin: Long = 0
+    @Volatile
+    var nowEnd: Long = 0
 }
 
 /** Minimalny klient API OpenWebif (OpenPLi). Wywoływać poza wątkiem UI. */
@@ -128,14 +132,16 @@ class OpenWebif(private val p: Prefs) {
     } catch (_: Exception) { null }
 
     /** Bieżące audycje dla całego bukietu: klucz(sref) -> tytuł. */
-    fun epgNow(b: Bouquet): Map<String, String> {
+    /** Bieżące audycje bukietu: klucz(sref) -> (tytuł, początek, koniec) w sekundach. */
+    fun epgNow(b: Bouquet): Map<String, Triple<String, Long, Long>> {
         val arr = get("/api/epgnow?bRef=" + enc(b.ref)).optJSONArray("events") ?: return emptyMap()
-        val m = HashMap<String, String>()
+        val m = HashMap<String, Triple<String, Long, Long>>()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
             val t = o.optString("title")
             val s = o.optString("sref")
-            if (t.isNotBlank() && s.isNotBlank()) m[key(s)] = unescape(t)
+            val beg = o.optLong("begin_timestamp")
+            if (t.isNotBlank() && t != "None" && s.isNotBlank()) m[key(s)] = Triple(unescape(t), beg, beg + o.optLong("duration_sec"))
         }
         return m
     }

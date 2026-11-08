@@ -59,12 +59,7 @@ class PlayerActivity : Activity() {
     private lateinit var bannerEnd: TextView
     private lateinit var bannerNext: TextView
     private lateinit var bannerProgress: android.widget.ProgressBar
-    private lateinit var infoIcon: android.widget.ImageView
-    private lateinit var infoTitle: TextView
-    private lateinit var infoTime: TextView
     private lateinit var infoDesc: TextView
-    private lateinit var infoNext: TextView
-    private lateinit var infoProgress: android.widget.ProgressBar
     private val hm = SimpleDateFormat("HH:mm", Locale("pl", "PL"))
 
     private lateinit var playerView: PlayerView
@@ -149,12 +144,7 @@ class PlayerActivity : Activity() {
         bannerEnd = findViewById(R.id.bannerEnd)
         bannerNext = findViewById(R.id.bannerNext)
         bannerProgress = findViewById(R.id.bannerProgress)
-        infoIcon = findViewById(R.id.infoIcon)
-        infoTitle = findViewById(R.id.infoTitle)
-        infoTime = findViewById(R.id.infoTime)
         infoDesc = findViewById(R.id.infoDesc)
-        infoNext = findViewById(R.id.infoNext)
-        infoProgress = findViewById(R.id.infoProgress)
         list.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: android.widget.AdapterView<*>?, v: View?, pos: Int, id: Long) {
                 panelList.getOrNull(pos)?.let { showInfo(it) }
@@ -701,7 +691,7 @@ class PlayerActivity : Activity() {
         io.execute {
             val map = try { api.epgNow(b) } catch (e: Exception) { emptyMap() }
             runOnUiThread {
-                target.forEach { c -> map[OpenWebif.key(c.ref)]?.let { c.now = it } }
+                target.forEach { c -> map[OpenWebif.key(c.ref)]?.let { c.now = it.first; c.nowBegin = it.second; c.nowEnd = it.third } }
                 if (panelList === target) adapter.notifyDataSetChanged()
             }
         }
@@ -732,10 +722,27 @@ class PlayerActivity : Activity() {
             iv.setImageBitmap(bmp)
             iv.visibility = if (bmp != null) View.VISIBLE else View.INVISIBLE
             val name = v.findViewById<TextView>(R.id.name)
-            name.text = c.name
             val playing = panelBouquet == playBouquet && position == playIndex
-            name.setTextColor(if (playing) 0xFF4FC3F7.toInt() else 0xFFFFFFFF.toInt())
-            v.findViewById<TextView>(R.id.now).text = c.now
+            val selected = position == list.selectedItemPosition && list.hasFocus()
+            name.text = if (playing) "▶  ${c.name}" else c.name
+            // na podświetleniu wszystko białe; odtwarzany kanał oznaczony ▶ i kolorem tylko poza podświetleniem
+            name.setTextColor(if (selected) 0xFFFFFFFF.toInt() else if (playing) 0xFF4FC3F7.toInt() else 0xFFFFFFFF.toInt())
+            val now = v.findViewById<TextView>(R.id.now)
+            now.text = c.now
+            now.setTextColor(if (selected) 0xFFE3F2FD.toInt() else 0xFFB0BEC5.toInt())
+            val time = v.findViewById<TextView>(R.id.time)
+            val bar = v.findViewById<android.widget.ProgressBar>(R.id.bar)
+            if (c.nowBegin > 0 && c.nowEnd > c.nowBegin) {
+                time.text = "${t(c.nowBegin)} – ${t(c.nowEnd)}"
+                time.setTextColor(if (selected) 0xFFFFFFFF.toInt() else 0xFFB0BEC5.toInt())
+                val n = System.currentTimeMillis() / 1000
+                bar.progress = (((n - c.nowBegin) * 1000) / (c.nowEnd - c.nowBegin)).toInt().coerceIn(0, 1000)
+                time.visibility = View.VISIBLE
+                bar.visibility = View.VISIBLE
+            } else {
+                time.visibility = View.INVISIBLE
+                bar.visibility = View.INVISIBLE
+            }
             return v
         }
     }
@@ -755,24 +762,16 @@ class PlayerActivity : Activity() {
 
     /** Dolna część listy kanałów: bieżąca audycja zaznaczonego kanału. */
     private fun showInfo(ch: Channel) {
-        val icon = if (prefs.picons) Picons.bitmap(this, ch.ref) else null
-        infoIcon.setImageBitmap(icon)
-        infoTitle.text = ch.now.ifBlank { ch.name }
-        infoTime.text = ""
+        adapter.notifyDataSetChanged() // kolory podświetlonego wiersza
         infoDesc.text = ""
-        infoNext.text = ""
-        infoProgress.progress = 0
-        epg.nowNext(ch) { cur, next ->
+        epg.nowNext(ch) { cur, _ ->
             if (panelList.getOrNull(list.selectedItemPosition) !== ch) return@nowNext
-            if (cur != null) {
-                infoTitle.text = cur.title
-                infoTime.text = "${t(cur.begin)} – ${t(cur.end)}  (zostało ${(cur.end - System.currentTimeMillis() / 1000) / 60} min)"
-                infoProgress.progress = progressOf(cur)
-                infoDesc.text = cur.shortDesc.ifBlank { cur.longDesc }
-            } else {
-                infoTitle.text = "${ch.name} — brak EPG"
+            infoDesc.text = when {
+                cur == null -> "Brak opisu w EPG"
+                cur.shortDesc.isNotBlank() && cur.longDesc.isNotBlank() && cur.longDesc != cur.shortDesc ->
+                    cur.shortDesc + "\n" + cur.longDesc
+                else -> cur.shortDesc.ifBlank { cur.longDesc }.ifBlank { "Brak opisu w EPG" }
             }
-            infoNext.text = next?.let { "Następnie  ${t(it.begin)}  ${it.title}" } ?: ""
         }
     }
 
